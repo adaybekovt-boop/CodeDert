@@ -35,10 +35,16 @@ jobs:
         run: npm run build:vite
 
       - name: Build Windows installer
-        run: npx electron-builder --win --publish $env:PUBLISH_MODE
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PUBLISH_MODE: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        run: npx electron-builder --win --publish never
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
 
       - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v4
