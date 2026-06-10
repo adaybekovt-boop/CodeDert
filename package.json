@@ -1,0 +1,97 @@
+{
+  "name": "codedert",
+  "version": "0.1.0",
+  "description": "Local-first AI IDE — Cursor-like with Ollama + optional Claude API",
+  "main": "dist-electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build && electron-builder",
+    "build:vite": "tsc -b && vite build",
+    "preview": "vite preview",
+    "electron:dev": "vite",
+    "dist": "npm run build:vite && electron-builder",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.1",
+    "@monaco-editor/react": "^4.6.0",
+    "@radix-ui/react-dialog": "^1.1.4",
+    "@radix-ui/react-dropdown-menu": "^2.1.4",
+    "@radix-ui/react-tabs": "^1.1.2",
+    "@radix-ui/react-toast": "^1.2.4",
+    "@xyflow/react": "^12.10.2",
+    "chokidar": "^4.0.3",
+    "clsx": "^2.1.1",
+    "diff": "^7.0.0",
+    "electron-store": "^10.0.1",
+    "electron-updater": "^6.3.9",
+    "keytar": "^7.9.0",
+    "lucide-react": "^0.468.0",
+    "monaco-editor": "^0.52.2",
+    "react": "^18.3.1",
+    "react-arborist": "^3.4.0",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "react-syntax-highlighter": "^15.6.1",
+    "remark-gfm": "^4.0.0",
+    "systeminformation": "^5.23.14",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/diff": "^7.0.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vite-plugin-electron": "^0.29.0",
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "vitest": "^2.1.9"
+  },
+  "build": {
+    "appId": "com.codedert.app",
+    "productName": "CodeDert",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "build/icon.ico"
+    ],
+    "extraResources": [
+      {
+        "from": "electron/resources",
+        "to": "cdesign-resources",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "adaybekovt-boop",
+        "repo": "CodeDert"
+      }
+    ]
+  }
+}
