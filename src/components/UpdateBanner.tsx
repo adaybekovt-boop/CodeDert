@@ -30,7 +30,9 @@ export function UpdateBanner() {
         setEv(data);
       }
     });
-    return off;
+    return () => {
+      off();
+    };
   }, []);
 
   if (!ev || dismissed) return null;
