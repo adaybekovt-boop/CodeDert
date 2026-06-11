@@ -200,6 +200,9 @@ export function useChat() {
           await useStore.getState().refreshFileTree();
           const openPaths = useStore.getState().openFiles.map((f) => f.path);
           for (const p of openPaths) await refreshOpenFileIfAny(p);
+          // Regenerate project map in the background — AI sees newly created
+          // files (with their first lines) on the next turn.
+          useStore.getState().refreshProjectMap().catch(() => {});
         }
         return;
       }
@@ -223,7 +226,7 @@ export function useChat() {
 
   async function send(text: string, opts: SendOptions = {}) {
     const state = useStore.getState();
-    const { selectedModel, openFiles, activeFilePath, workspaceRoot, fileTree, chatMode } = state;
+    const { selectedModel, openFiles, activeFilePath, workspaceRoot, fileTree, projectMap, chatMode } = state;
     const brainStore = useBrainStore.getState();
 
     if (!selectedModel) {
@@ -241,7 +244,9 @@ export function useChat() {
     let contextBlock = '';
     if (workspaceRoot) {
       contextBlock += `\n\n[Project]\nRoot: ${workspaceRoot}`;
-      if (fileTree) {
+      if (projectMap) {
+        contextBlock += `\n\n[Project Map — автоматически сгенерированная карта проекта]\n${projectMap}\n[/Project Map]`;
+      } else if (fileTree) {
         contextBlock += `\n\n[File tree]\n${buildTreeLines(fileTree, workspaceRoot).join('\n')}`;
       }
     } else {

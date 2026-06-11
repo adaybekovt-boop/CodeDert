@@ -20,6 +20,7 @@ import { cdesign } from './services/cdesign.js';
 import { terminal } from './services/terminal.js';
 import { brain } from './services/brain.js';
 import { isSafeExternalUrl } from './services/path-safety.js';
+import { generateProjectMap } from './services/project-map.js';
 import { cwmSessions, type CwmSessionDoc } from './services/cwm-sessions.js';
 import { cwmMedia } from './services/cwm-media.js';
 import type { AppSettings } from './services/settings-schema.js';
@@ -87,6 +88,31 @@ export function registerIpcHandlers(win: BrowserWindow) {
   );
   ipcMain.handle('workspace:list-dir', async (_, dirPath: string) => workspace.listDirectory(dirPath));
   ipcMain.handle('workspace:delete-file', async (_, filePath: string) => workspace.deleteFile(filePath));
+  ipcMain.handle('workspace:project-map', async (_, root: string) => {
+    try {
+      // Same trust model as the other workspace handlers: only scan the
+      // folder the user actually opened, never an arbitrary renderer path.
+      const active = getActiveWorkspaceRoot();
+      if (!active || typeof root !== 'string' || path.resolve(root) !== path.resolve(active)) {
+        return {
+          text: '',
+          graph: { nodes: [], edges: [], rootName: '' },
+          generatedAt: Date.now(),
+          root,
+          error: 'root is not the active workspace',
+        };
+      }
+      return await generateProjectMap(active);
+    } catch (err: any) {
+      return {
+        text: '',
+        graph: { nodes: [], edges: [], rootName: '' },
+        generatedAt: Date.now(),
+        root,
+        error: err.message,
+      };
+    }
+  });
 
   // ── Agent ─────────────────────────────────────────────────
   // workspaceRoot is taken from the main-process source of truth, never from

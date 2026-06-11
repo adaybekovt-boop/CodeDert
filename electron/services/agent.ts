@@ -477,9 +477,31 @@ async function streamOneTurn(
   const decoder = new TextDecoder();
   let lineBuf = '';
   let stopRequested = false;
+  const OLLAMA_STALL_MS = 90_000;
+
+  type ReadResult = Awaited<ReturnType<typeof reader.read>>;
+  function ollamaReadNext(): Promise<ReadResult> {
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(
+        () => reject(Object.assign(new Error('Ollama stream stalled'), { name: 'TimeoutError' })),
+        OLLAMA_STALL_MS
+      );
+      reader.read().then(
+        (r) => { clearTimeout(t); resolve(r); },
+        (e) => { clearTimeout(t); reject(e); }
+      );
+    });
+  }
 
   while (true) {
-    const { done, value } = await reader.read();
+    let done: boolean;
+    let value: Uint8Array | undefined;
+    try {
+      ({ done, value } = await ollamaReadNext());
+    } catch (err: any) {
+      if (err.name === 'TimeoutError') break;
+      throw err;
+    }
     if (done) break;
     lineBuf += decoder.decode(value, { stream: true });
 

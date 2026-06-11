@@ -29,6 +29,26 @@ const api = {
     ) => ipcRenderer.invoke('workspace:apply-edit', filePath, oldString, newString, replaceAll),
     listDir: (dirPath: string) => ipcRenderer.invoke('workspace:list-dir', dirPath),
     deleteFile: (filePath: string) => ipcRenderer.invoke('workspace:delete-file', filePath),
+    projectMap: (root: string): Promise<{
+      text: string;
+      graph: {
+        nodes: {
+          id: string;
+          name: string;
+          relPath: string;
+          kind: 'file' | 'folder';
+          parentId: string | null;
+          preview?: string;
+          language?: string;
+          childCount?: number;
+        }[];
+        edges: { from: string; to: string }[];
+        rootName: string;
+      };
+      generatedAt: number;
+      root: string;
+      error?: string;
+    }> => ipcRenderer.invoke('workspace:project-map', root),
   },
 
   // ── Agent (tool-using loop — local Ollama or any cloud provider) ──────

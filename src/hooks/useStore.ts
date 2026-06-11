@@ -1,10 +1,30 @@
 import { create } from 'zustand';
 import type { ChatMessage, ChatMode, FileNode, ModelChoice, OpenFile, ToolEvent } from '../types';
 
+export interface ProjectMapNode {
+  id: string;
+  name: string;
+  relPath: string;
+  kind: 'file' | 'folder';
+  parentId: string | null;
+  preview?: string;
+  language?: string;
+  childCount?: number;
+}
+
+export interface ProjectMapGraph {
+  nodes: ProjectMapNode[];
+  edges: { from: string; to: string }[];
+  rootName: string;
+}
+
 interface AppState {
   // Workspace
   workspaceRoot: string | null;
   fileTree: FileNode | null;
+  projectMap: string | null;
+  projectMapGraph: ProjectMapGraph | null;
+  projectMapLoading: boolean;
   openFiles: OpenFile[];
   activeFilePath: string | null;
 
@@ -15,7 +35,7 @@ interface AppState {
   hasAnthropicKey: boolean;
 
   // Sidebar
-  activePanel: 'files' | 'chat' | 'image' | 'settings' | 'brain' | 'cwm';
+  activePanel: 'files' | 'chat' | 'image' | 'settings' | 'brain' | 'cwm' | 'map';
 
   // Chat
   messages: ChatMessage[];
@@ -27,6 +47,7 @@ interface AppState {
   // Actions
   setWorkspace: (root: string, tree: FileNode) => void;
   refreshFileTree: () => Promise<void>;
+  refreshProjectMap: () => Promise<void>;
   openFile: (path: string) => Promise<void>;
   closeFile: (path: string) => void;
   updateFileContent: (path: string, content: string) => void;
@@ -38,7 +59,7 @@ interface AppState {
   setChatMode: (mode: ChatMode) => void;
   setHasAnthropicKey: (has: boolean) => void;
 
-  setActivePanel: (panel: 'files' | 'chat' | 'image' | 'settings' | 'brain' | 'cwm') => void;
+  setActivePanel: (panel: 'files' | 'chat' | 'image' | 'settings' | 'brain' | 'cwm' | 'map') => void;
 
   addMessage: (msg: ChatMessage) => void;
   appendToMessage: (id: string, chunk: string, field?: 'content' | 'thinking') => void;
@@ -70,6 +91,9 @@ function languageFromPath(filePath: string): string {
 export const useStore = create<AppState>((set, get) => ({
   workspaceRoot: null,
   fileTree: null,
+  projectMap: null,
+  projectMapGraph: null,
+  projectMapLoading: false,
   openFiles: [],
   activeFilePath: null,
 
@@ -86,12 +110,30 @@ export const useStore = create<AppState>((set, get) => ({
   needsOnboarding: true,
 
   setWorkspace: (root, tree) => {
-    set({ workspaceRoot: root, fileTree: tree, openFiles: [], activeFilePath: null });
+    set({
+      workspaceRoot: root,
+      fileTree: tree,
+      projectMap: null,
+      projectMapGraph: null,
+      projectMapLoading: true,
+      openFiles: [],
+      activeFilePath: null,
+    });
     // Tell main process and persist for next boot.
     window.api.workspace.setRoot(root).catch(() => {});
     window.api.settings.set('lastWorkspaceRoot', root).catch(() => {});
     // Scope the Brain (notes + worklog) to this project.
     window.api.brain.setProject(root).catch(() => {});
+    // Generate project map in the background (AI text + viz graph).
+    window.api.workspace.projectMap(root).then((map) => {
+      set({
+        projectMap: map?.text || null,
+        projectMapGraph: map?.graph || null,
+        projectMapLoading: false,
+      });
+    }).catch(() => {
+      set({ projectMapLoading: false });
+    });
   },
 
   refreshFileTree: async () => {
@@ -99,6 +141,22 @@ export const useStore = create<AppState>((set, get) => ({
     if (!workspaceRoot) return;
     const tree = await window.api.workspace.listFiles(workspaceRoot);
     set({ fileTree: tree });
+  },
+
+  refreshProjectMap: async () => {
+    const { workspaceRoot } = get();
+    if (!workspaceRoot) return;
+    set({ projectMapLoading: true });
+    try {
+      const map = await window.api.workspace.projectMap(workspaceRoot);
+      set({
+        projectMap: map?.text || null,
+        projectMapGraph: map?.graph || null,
+        projectMapLoading: false,
+      });
+    } catch {
+      set({ projectMapLoading: false });
+    }
   },
 
   openFile: async (path) => {

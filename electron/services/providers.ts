@@ -211,15 +211,40 @@ async function readSse(
   signal: AbortSignal,
   cb: (data: any) => void
 ): Promise<void> {
+  // If no chunk arrives for this long, stop reading — avoids silent hangs when
+  // a cloud provider stalls mid-stream (e.g. during a tool call generation).
+  const STALL_MS = 90_000;
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
+  let stallTimer: ReturnType<typeof setTimeout> | undefined;
+
+  type ReadResult = Awaited<ReturnType<typeof reader.read>>;
+  function readNext(): Promise<ReadResult> {
+    return new Promise((resolve, reject) => {
+      stallTimer = setTimeout(
+        () => reject(Object.assign(new Error('SSE stream stalled'), { name: 'TimeoutError' })),
+        STALL_MS
+      );
+      reader.read().then(
+        (r) => { clearTimeout(stallTimer); resolve(r); },
+        (e) => { clearTimeout(stallTimer); reject(e); }
+      );
+    });
+  }
+
   try {
     while (true) {
       if (signal.aborted) break;
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
+      let result: ReadResult;
+      try {
+        result = await readNext();
+      } catch (err: any) {
+        if (err.name === 'TimeoutError') break; // stall — end gracefully
+        throw err;
+      }
+      if (result.done) break;
+      buf += decoder.decode(result.value, { stream: true });
       const lines = buf.split('\n');
       buf = lines.pop() || '';
       for (const line of lines) {
@@ -235,6 +260,7 @@ async function readSse(
       }
     }
   } finally {
+    clearTimeout(stallTimer);
     try {
       reader.releaseLock();
     } catch {

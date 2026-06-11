@@ -11,6 +11,7 @@ import { TerminalApprovalDialog } from './components/TerminalApprovalDialog';
 import { UpdateBanner } from './components/UpdateBanner';
 import { BrainPanel } from './components/BrainPanel';
 import { CwmPanel } from './components/CwmPanel';
+import { ProjectMapPanel } from './components/ProjectMapPanel';
 import { useStore } from './hooks/useStore';
 import { useBrainStore } from './lib/brain-store';
 
@@ -129,6 +130,19 @@ export function App() {
         if (lastWorkspace && !cancelled) {
           await window.api.workspace.setRoot(lastWorkspace);
           window.api.brain.setProject(lastWorkspace).catch(() => {});
+          // Generate project map for agent orientation (non-blocking).
+          useStore.setState({ projectMapLoading: true });
+          window.api.workspace.projectMap(lastWorkspace).then((map) => {
+            if (!cancelled) {
+              useStore.setState({
+                projectMap: map?.text || null,
+                projectMapGraph: map?.graph || null,
+                projectMapLoading: false,
+              });
+            }
+          }).catch(() => {
+            if (!cancelled) useStore.setState({ projectMapLoading: false });
+          });
         }
 
         const onboardingDone = await withTimeout(window.api.settings.get('onboardingDone'), 1500, false);
@@ -173,6 +187,22 @@ export function App() {
           <CwmPanel />
         </div>
         {needsOnboarding && <OnboardingDialog />}
+      </div>
+    );
+  }
+
+  // Project Map: full-area visualization, with the chat still on the right.
+  if (activePanel === 'map') {
+    return (
+      <div className="flex flex-col h-full bg-bg">
+        <UpdateBanner />
+        <div className="flex flex-1 min-h-0">
+          <Sidebar />
+          <ProjectMapPanel />
+          <ChatPanel />
+        </div>
+        {needsOnboarding && <OnboardingDialog />}
+        <TerminalApprovalDialog />
       </div>
     );
   }
