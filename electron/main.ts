@@ -4,7 +4,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerIpcHandlers } from './ipc-handlers.js';
 import { maybeAutoStartOllama } from './services/ollama-launcher.js';
-import { maybeAutoStartSd } from './services/sd-launcher.js';
 import { isSafeExternalUrl } from './services/path-safety.js';
 import { mcp } from './services/mcp.js';
 import { updater } from './services/updater.js';
@@ -117,16 +116,9 @@ app.whenReady().then(() => {
     })
     .catch((err) => log('ollama auto-start failed', err));
 
-  // Auto-launch the Stable Diffusion webui too (opt-out via provider.sd.autoStart).
-  // Fire-and-forget; the image panel polls health and reflects status.
-  maybeAutoStartSd()
-    .then((res) => {
-      log(`sd auto-start: ${JSON.stringify(res)}`);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('sd:auto-start', res);
-      }
-    })
-    .catch((err) => log('sd auto-start failed', err));
+  // Stable Diffusion is NOT auto-started: the webui is heavy (GPU, minutes of
+  // boot time). It launches only when the user explicitly clicks "Запустить"
+  // in the image panel (sd:ensure-running IPC).
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

@@ -117,7 +117,12 @@ export const updater = {
       await autoUpdater.downloadUpdate();
       return { ok: true };
     } catch (err: any) {
-      const msg = (err?.message || String(err)).slice(0, 300);
+      const raw = err?.message || String(err);
+      // 404 on the asset = the release tag exists but the installer file was
+      // never uploaded (CI publish failed). Retrying won't help — say so.
+      const msg = /404/.test(raw)
+        ? `Файл установщика отсутствует в релизе v${state.version || ''} на GitHub (ошибка публикации). Обновление выйдет в следующем релизе.`
+        : raw.slice(0, 300);
       emit({ status: 'error', error: msg });
       return { ok: false, error: msg };
     }
