@@ -33,17 +33,20 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             minify: false,
-            // lib mode forces vite to honor the output format. Without this,
-            // package.json "type": "module" makes vite emit ESM (a top-level
-            // `import` in a .cjs file), which Electron refuses to load as a
-            // preload ("Cannot use import statement outside a module").
-            lib: {
-              entry: 'electron/preload.ts',
-              formats: ['cjs'],
-              fileName: () => 'preload.cjs',
-            },
+            // Electron requires the preload to be CJS. The plugin's default
+            // lib config emits ESM ("type": "module"), and vite's mergeConfig
+            // CONCATENATES lib.formats arrays — a user lib config here ends up
+            // as ['es','cjs'] writing the same preload.cjs path twice and
+            // corrupting it ("Unexpected token 'export'" on app start).
+            // Disable lib mode entirely and force CJS through rollup output.
+            lib: false,
             rollupOptions: {
+              input: 'electron/preload.ts',
               external: ['electron'],
+              output: {
+                format: 'cjs',
+                entryFileNames: 'preload.cjs',
+              },
             },
           },
         },

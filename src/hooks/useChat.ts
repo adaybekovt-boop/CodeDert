@@ -172,16 +172,29 @@ export function useChat() {
       }
 
       if (data.kind === 'tool_call') {
-        const argsPath = data.args?.path;
-        const label = argsPath ? `${data.tool} → ${argsPath}` : data.tool;
-        state.appendToMessage(lastMsg.id, `\n\n_🔧 ${label}…_\n`);
+        const argsPath = data.args?.path ?? data.args?.command ?? data.args?.query;
+        state.addToolEvent(lastMsg.id, {
+          id: genId(),
+          tool: data.tool || 'tool',
+          target: argsPath ? String(argsPath) : undefined,
+          status: 'running',
+          anchor: lastMsg.content.length,
+        });
         return;
       }
 
       if (data.kind === 'tool_result') {
-        const icon = data.ok ? '✅' : '⚠️';
-        const text = data.ok ? data.summary : `error: ${data.error || data.summary}`;
-        state.appendToMessage(lastMsg.id, `_${icon} ${text}_\n`);
+        // Close the most recent still-running event for this tool.
+        const events = lastMsg.toolEvents || [];
+        const open = [...events].reverse().find(
+          (ev) => ev.status === 'running' && (ev.tool === data.tool || !data.tool)
+        );
+        if (open) {
+          state.updateToolEvent(lastMsg.id, open.id, {
+            status: data.ok ? 'done' : 'error',
+            output: data.ok ? data.summary : data.error || data.summary,
+          });
+        }
 
         if (data.ok && (data.tool === 'edit_file' || data.tool === 'create_file' || data.tool === 'delete_file')) {
           await useStore.getState().refreshFileTree();

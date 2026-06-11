@@ -8,10 +8,25 @@ declare global {
   }
 }
 
+/** A single tool invocation rendered as a structured block in the chat. */
+export interface ToolEvent {
+  id: string;
+  /** Tool name as reported by the agent loop (read_file, edit_file, run, …). */
+  tool: string;
+  /** File path or command the tool targets, if known. */
+  target?: string;
+  status: 'running' | 'done' | 'error';
+  /** Result summary or error text. */
+  output?: string;
+  /** content.length at the moment the call started — anchors the block between prose chunks. */
+  anchor: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  toolEvents?: ToolEvent[];
   thinking?: string;
   model?: string;
   timestamp: number;

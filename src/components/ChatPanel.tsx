@@ -1,5 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { Send, Square, Trash2, Brain, User, Bot, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Send, Square, Trash2, Brain, Bot, AlertCircle, ChevronDown, ChevronRight,
+  Check, X, FileText, FilePlus, FilePen, FileX, Search, Terminal, FolderOpen, Globe, Wrench,
+  type LucideIcon,
+} from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -14,7 +18,7 @@ import { cancelUltrathink, parseUltrathinkCommand, runUltrathink } from '../lib/
 import { runCdesign } from '../lib/cdesign-runner';
 import { runBrain } from '../lib/brain-runner';
 import { cn, genId, relativePath } from '../lib/utils';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, ToolEvent } from '../types';
 
 export function ChatPanel() {
   const { messages, isStreaming, clearChat, selectedModel, chatMode, setChatMode, addMessage, setActivePanel, workspaceRoot, refreshFileTree, activeFilePath, openFiles, availableModels, setModel } = useStore();
@@ -78,7 +82,7 @@ export function ChatPanel() {
       } else if (!res.cancelled) {
         abort();
       }
-      postAssistant('🛑 Cancellation requested.');
+      postAssistant('Cancellation requested.');
       return;
     }
 
@@ -149,7 +153,7 @@ export function ChatPanel() {
     if (slash?.kind === 'design') {
       setChatMode('design');
       setInput('');
-      postAssistant('🎨 Design critique mode enabled. Share UI code or a screenshot.');
+      postAssistant('Design critique mode enabled. Share UI code or a screenshot.');
       return;
     }
     if (slash?.kind === 'cdesign') {
@@ -375,7 +379,6 @@ export function ChatPanel() {
               }}
               className="w-full px-3 py-2 text-left hover:bg-bg-elevated flex items-start gap-2 text-sm"
             >
-              <span>{s.icon}</span>
               <div className="flex-1 min-w-0">
                 <div className="font-mono text-accent">{s.name}</div>
                 <div className="text-xs text-text-muted">{s.description}</div>
@@ -423,6 +426,154 @@ export function ChatPanel() {
   );
 }
 
+/** Map a tool name onto a line icon (single lucide stroke set). */
+function toolIcon(tool: string): LucideIcon {
+  const t = tool.toLowerCase();
+  if (t.includes('read')) return FileText;
+  if (t.includes('create') || t.includes('write')) return FilePlus;
+  if (t.includes('edit') || t.includes('apply') || t.includes('patch')) return FilePen;
+  if (t.includes('delete') || t.includes('remove')) return FileX;
+  if (t.includes('search') || t.includes('grep') || t.includes('glob') || t.includes('find')) return Search;
+  if (t.includes('run') || t.includes('exec') || t.includes('bash') || t.includes('command') || t.includes('terminal')) return Terminal;
+  if (t.includes('list') || t.includes('dir') || t.includes('tree')) return FolderOpen;
+  if (t.includes('fetch') || t.includes('http') || t.includes('web') || t.includes('url')) return Globe;
+  return Wrench;
+}
+
+const STATUS_LABEL: Record<ToolEvent['status'], string> = {
+  running: 'running',
+  done: 'done',
+  error: 'error',
+};
+
+const OUTPUT_PREVIEW_LINES = 12;
+
+function ToolCallBlock({ ev }: { ev: ToolEvent }) {
+  const [open, setOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const Icon = toolIcon(ev.tool);
+  const hasOutput = !!ev.output?.trim();
+
+  const lines = (ev.output || '').split('\n');
+  const truncated = !showAll && lines.length > OUTPUT_PREVIEW_LINES;
+  const visibleOutput = truncated ? lines.slice(0, OUTPUT_PREVIEW_LINES).join('\n') : ev.output;
+
+  return (
+    <div
+      className={cn(
+        'my-2 rounded border border-bg-subtle bg-bg-elevated border-l-2 overflow-hidden',
+        ev.status === 'running' && 'border-l-status-running',
+        ev.status === 'done' && 'border-l-status-done',
+        ev.status === 'error' && 'border-l-status-error'
+      )}
+    >
+      <button
+        onClick={() => hasOutput && setOpen((o) => !o)}
+        className={cn(
+          'w-full flex items-center gap-2 px-2 py-1.5 text-left',
+          hasOutput ? 'cursor-pointer hover:bg-bg-border/30' : 'cursor-default',
+          ev.status === 'error' && 'bg-status-error/[0.06]'
+        )}
+      >
+        <Icon className="w-3.5 h-3.5 shrink-0 text-text-secondary" strokeWidth={1.75} />
+        <span className="font-mono text-xs truncate flex-1 min-w-0">
+          <span className="text-text-primary">{ev.tool}</span>
+          {ev.target && <span className="text-text-secondary"> {ev.target}</span>}
+        </span>
+        <span className="flex items-center gap-1.5 shrink-0">
+          <span
+            className={cn(
+              'w-1.5 h-1.5 rounded-full',
+              ev.status === 'running' && 'bg-status-running animate-pulse',
+              ev.status === 'done' && 'bg-status-done',
+              ev.status === 'error' && 'bg-status-error'
+            )}
+          />
+          <span className="font-mono text-[11px] text-text-muted">{STATUS_LABEL[ev.status]}</span>
+        </span>
+        {hasOutput &&
+          (open ? (
+            <ChevronDown className="w-3 h-3 shrink-0 text-text-muted" />
+          ) : (
+            <ChevronRight className="w-3 h-3 shrink-0 text-text-muted" />
+          ))}
+      </button>
+      {open && hasOutput && (
+        <div className="border-t border-bg-subtle bg-bg-inset">
+          <pre className="px-2.5 py-2 font-mono text-xs leading-relaxed text-text-secondary whitespace-pre-wrap break-words overflow-x-auto max-h-72 overflow-y-auto">
+            {visibleOutput}
+          </pre>
+          {truncated && (
+            <button
+              onClick={() => setShowAll(true)}
+              className="w-full px-2.5 pb-2 font-mono text-[11px] text-text-muted hover:text-text-secondary text-left"
+            >
+              … ещё {lines.length - OUTPUT_PREVIEW_LINES} строк — показать всё
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Shared markdown renderer for assistant prose chunks. */
+function Markdown({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        code({ inline, className, children, ...props }: any) {
+          const match = /language-(\w+)/.exec(className || '');
+          if (!inline && match) {
+            return (
+              <SyntaxHighlighter
+                style={vscDarkPlus as any}
+                language={match[1]}
+                PreTag="div"
+                customStyle={{
+                  margin: 0,
+                  background: '#0d1117',
+                  fontSize: '12px',
+                }}
+              >
+                {String(children).replace(/\n$/, '')}
+              </SyntaxHighlighter>
+            );
+          }
+          return (
+            <code className={className} {...props}>
+              {children}
+            </code>
+          );
+        },
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+}
+
+/** Interleaves assistant prose with tool-call blocks using event anchors. */
+function AssistantBody({ msg }: { msg: ChatMessage }) {
+  const events = msg.toolEvents || [];
+  if (events.length === 0) {
+    return <Markdown text={msg.content || (msg.streaming ? '…' : '')} />;
+  }
+  const parts: ReactNode[] = [];
+  let pos = 0;
+  events.forEach((ev, i) => {
+    const anchor = Math.min(Math.max(ev.anchor, pos), msg.content.length);
+    const chunk = msg.content.slice(pos, anchor);
+    if (chunk.trim()) parts.push(<Markdown key={`t-${i}`} text={chunk} />);
+    parts.push(<ToolCallBlock key={ev.id} ev={ev} />);
+    pos = anchor;
+  });
+  const tail = msg.content.slice(pos);
+  if (tail.trim()) parts.push(<Markdown key="tail" text={tail} />);
+  return <>{parts}</>;
+}
+
 function MessageBubble({
   msg,
   showThinking,
@@ -434,11 +585,9 @@ function MessageBubble({
 }) {
   if (msg.role === 'user') {
     return (
-      <div className="flex gap-2">
-        <div className="w-6 h-6 rounded-full bg-bg-elevated flex items-center justify-center shrink-0 mt-0.5">
-          <User className="w-3.5 h-3.5 text-text-secondary" />
-        </div>
-        <div className="flex-1 text-sm text-text-primary whitespace-pre-wrap break-words">
+      <div className="border-l-2 border-accent pl-3">
+        <div className="font-mono text-[11px] text-text-muted mb-0.5">you</div>
+        <div className="text-[13px] leading-relaxed text-text-primary whitespace-pre-wrap break-words">
           {msg.content}
         </div>
       </div>
@@ -446,106 +595,73 @@ function MessageBubble({
   }
 
   return (
-    <div className="flex gap-2">
-      <div className="w-6 h-6 rounded-full bg-accent/15 flex items-center justify-center shrink-0 mt-0.5">
-        <Bot className="w-3.5 h-3.5 text-accent" />
-      </div>
-      <div className="flex-1 min-w-0">
-        {msg.thinking && (
+    <div className="min-w-0">
+      {msg.thinking && (
+        <button
+          onClick={onToggleThinking}
+          className="flex items-center gap-1 font-mono text-[11px] text-text-muted hover:text-text-secondary mb-1"
+        >
+          {showThinking ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          <Brain className="w-3 h-3" strokeWidth={1.75} />
+          мышление · {msg.thinking.split('\n').length} стр
+        </button>
+      )}
+      {showThinking && msg.thinking && (
+        <div className="text-xs leading-relaxed text-text-secondary border-l border-bg-subtle pl-3 mb-2 whitespace-pre-wrap">
+          {msg.thinking}
+        </div>
+      )}
+      {msg.error ? (
+        <div className="flex items-start gap-2 text-status-error text-[13px] bg-status-error/[0.06] rounded p-2 border border-status-error/20">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" strokeWidth={1.75} />
+          <div>{msg.error}</div>
+        </div>
+      ) : (
+        <div className="markdown-body break-words">
+          <AssistantBody msg={msg} />
+          {msg.streaming && (
+            <span className="inline-block w-1.5 h-3 bg-accent ml-0.5 animate-pulse" />
+          )}
+        </div>
+      )}
+      {msg.awaitingApproval && !msg.awaitingApproval.resolved && (
+        <div className="mt-2 flex items-center gap-2">
           <button
-            onClick={onToggleThinking}
-            className="flex items-center gap-1 text-xs text-text-muted hover:text-text-secondary mb-1"
+            onClick={() => approveMultyplan(msg.awaitingApproval!.requestId)}
+            className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-bg hover:bg-accent-hover inline-flex items-center gap-1.5"
           >
-            {showThinking ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            <Brain className="w-3 h-3" />
-            Мышление
+            <Check className="w-3.5 h-3.5" strokeWidth={2} />
+            Утвердить план → запустить Qwen3-Coder
           </button>
-        )}
-        {showThinking && msg.thinking && (
-          <div className="text-xs text-text-muted bg-bg-elevated rounded p-2 mb-2 whitespace-pre-wrap font-mono border-l-2 border-accent-muted">
-            {msg.thinking}
-          </div>
-        )}
-        {msg.error ? (
-          <div className="flex items-start gap-2 text-rose-400 text-sm bg-rose-500/10 rounded p-2 border border-rose-500/20">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <div>{msg.error}</div>
-          </div>
-        ) : (
-          <div className="markdown-body break-words">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code({ inline, className, children, ...props }: any) {
-                  const match = /language-(\w+)/.exec(className || '');
-                  if (!inline && match) {
-                    return (
-                      <SyntaxHighlighter
-                        style={vscDarkPlus as any}
-                        language={match[1]}
-                        PreTag="div"
-                        customStyle={{
-                          margin: 0,
-                          background: '#0d1117',
-                          fontSize: '12px',
-                        }}
-                      >
-                        {String(children).replace(/\n$/, '')}
-                      </SyntaxHighlighter>
-                    );
-                  }
-                  return (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
-                  );
-                },
-              }}
-            >
-              {msg.content || (msg.streaming ? '...' : '')}
-            </ReactMarkdown>
-            {msg.streaming && (
-              <span className="inline-block w-1.5 h-3 bg-accent ml-0.5 animate-pulse" />
-            )}
-          </div>
-        )}
-        {msg.awaitingApproval && !msg.awaitingApproval.resolved && (
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              onClick={() => approveMultyplan(msg.awaitingApproval!.requestId)}
-              className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-bg hover:bg-accent-hover"
-            >
-              ✅ Утвердить план → запустить Qwen3-Coder
-            </button>
-            <button
-              onClick={() => rejectMultyplan(msg.awaitingApproval!.requestId)}
-              className="px-3 py-1.5 text-xs font-medium rounded-md bg-bg-elevated text-text-secondary hover:text-text-primary"
-            >
-              🛑 Отклонить
-            </button>
-          </div>
-        )}
-          {msg.awaitingApproval?.resolved && (
-          <div className="mt-2 text-xs text-text-muted italic">
-            {msg.awaitingApproval.resolved === 'approved'
-              ? 'План утверждён.'
-              : 'План отклонён.'}
-          </div>
-        )}
-        {msg.ultrathinkRequestId && msg.streaming && (
-          <div className="mt-2">
-            <button
-              onClick={() => cancelUltrathink()}
-              className="px-3 py-1.5 text-xs font-medium rounded-md bg-bg-elevated text-text-secondary hover:text-text-primary"
-            >
-              Cancel ultrathink
-            </button>
-          </div>
-        )}
-        {msg.model && !msg.streaming && (
-          <div className="text-xs text-text-muted mt-1">{msg.model}</div>
-        )}
-      </div>
+          <button
+            onClick={() => rejectMultyplan(msg.awaitingApproval!.requestId)}
+            className="px-3 py-1.5 text-xs font-medium rounded-md bg-bg-elevated text-text-secondary hover:text-text-primary inline-flex items-center gap-1.5"
+          >
+            <X className="w-3.5 h-3.5" strokeWidth={2} />
+            Отклонить
+          </button>
+        </div>
+      )}
+      {msg.awaitingApproval?.resolved && (
+        <div className="mt-2 text-xs text-text-muted italic">
+          {msg.awaitingApproval.resolved === 'approved'
+            ? 'План утверждён.'
+            : 'План отклонён.'}
+        </div>
+      )}
+      {msg.ultrathinkRequestId && msg.streaming && (
+        <div className="mt-2">
+          <button
+            onClick={() => cancelUltrathink()}
+            className="px-3 py-1.5 text-xs font-medium rounded-md bg-bg-elevated text-text-secondary hover:text-text-primary"
+          >
+            Cancel ultrathink
+          </button>
+        </div>
+      )}
+      {msg.model && !msg.streaming && (
+        <div className="font-mono text-[11px] text-text-muted mt-1.5">{msg.model}</div>
+      )}
     </div>
   );
 }

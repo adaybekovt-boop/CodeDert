@@ -10,6 +10,13 @@ export default {
           panel: '#161b22',
           elevated: '#1c2128',
           border: '#30363d',
+          inset: '#0a0d12',
+          subtle: '#21262d',
+        },
+        status: {
+          running: '#d29922',
+          done: '#3fb950',
+          error: '#f85149',
         },
         accent: {
           DEFAULT: '#d4a574',

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatMessage, ChatMode, FileNode, ModelChoice, OpenFile } from '../types';
+import type { ChatMessage, ChatMode, FileNode, ModelChoice, OpenFile, ToolEvent } from '../types';
 
 interface AppState {
   // Workspace
@@ -43,6 +43,8 @@ interface AppState {
   addMessage: (msg: ChatMessage) => void;
   appendToMessage: (id: string, chunk: string, field?: 'content' | 'thinking') => void;
   finishMessage: (id: string, error?: string) => void;
+  addToolEvent: (msgId: string, event: ToolEvent) => void;
+  updateToolEvent: (msgId: string, eventId: string, patch: Partial<ToolEvent>) => void;
   updateMessage: (id: string, patch: Partial<ChatMessage>) => void;
   clearChat: () => void;
   setStreaming: (s: boolean) => void;
@@ -184,6 +186,27 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => ({
       messages: s.messages.map((m) =>
         m.id === id ? { ...m, streaming: false, error } : m
+      ),
+    })),
+
+  addToolEvent: (msgId, event) =>
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.id === msgId ? { ...m, toolEvents: [...(m.toolEvents || []), event] } : m
+      ),
+    })),
+
+  updateToolEvent: (msgId, eventId, patch) =>
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.id === msgId
+          ? {
+              ...m,
+              toolEvents: (m.toolEvents || []).map((ev) =>
+                ev.id === eventId ? { ...ev, ...patch } : ev
+              ),
+            }
+          : m
       ),
     })),
 

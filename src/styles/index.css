@@ -54,7 +54,7 @@
 
 /* Markdown styling in chat */
 .markdown-body {
-  @apply text-sm leading-relaxed;
+  @apply text-[13px] leading-relaxed;
 }
 .markdown-body p {
   @apply mb-2;
