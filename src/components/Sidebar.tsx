@@ -1,9 +1,10 @@
-import { Files, MessageSquare, ImageIcon, Settings, Sparkles, Brain } from 'lucide-react';
+import { Files, MessageSquare, ImageIcon, Settings, Sparkles, Brain, MessageCircle } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { cn } from '../lib/utils';
 
 const ITEMS = [
   { id: 'files', icon: Files, label: 'Файлы' },
+  { id: 'cwm', icon: MessageCircle, label: 'Чат с моделью' },
   { id: 'brain', icon: Brain, label: 'Brain' },
   { id: 'image', icon: ImageIcon, label: 'Картинки' },
   { id: 'settings', icon: Settings, label: 'Настройки' },

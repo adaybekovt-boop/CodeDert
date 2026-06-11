@@ -21,6 +21,8 @@ export interface OllamaModel {
 export interface OllamaMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  /** Base64 images (no data: prefix) for multimodal models (llava, qwen-vl…). */
+  images?: string[];
 }
 
 // Tracks in-flight requests so we can abort them

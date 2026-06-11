@@ -20,6 +20,8 @@ import { cdesign } from './services/cdesign.js';
 import { terminal } from './services/terminal.js';
 import { brain } from './services/brain.js';
 import { isSafeExternalUrl } from './services/path-safety.js';
+import { cwmSessions, type CwmSessionDoc } from './services/cwm-sessions.js';
+import { cwmMedia } from './services/cwm-media.js';
 import type { AppSettings } from './services/settings-schema.js';
 import {
   multyplan,
@@ -357,6 +359,10 @@ export function registerIpcHandlers(win: BrowserWindow) {
     'selectedModelId',
     'lastWorkspaceRoot',
     'onboardingDone',
+    // CWM UI preferences (model + media providers picked inside the chat).
+    'cwmSelectedModelId',
+    'cwmImageProviderId',
+    'cwmVideoProviderId',
   ]);
   ipcMain.handle('settings:get', (_, key: string) =>
     LEGACY_SETTINGS_KEYS.has(key) ? store.get(key) : undefined
@@ -374,6 +380,22 @@ export function registerIpcHandlers(win: BrowserWindow) {
     }
     return out;
   });
+
+  // ── Chat With Model (CWM) ─────────────────────────────────
+  // Conversational mode. Deliberately NOT wired to agent/workspace/terminal:
+  // its only main-process surface is session storage + media generation.
+  // Chat itself reuses the providers/ollama channels (no tool definitions).
+  ipcMain.handle('cwm:list-sessions', () => cwmSessions.list());
+  ipcMain.handle('cwm:get-session', (_, id: string) => cwmSessions.get(id));
+  ipcMain.handle('cwm:save-session', (_, doc: CwmSessionDoc) => cwmSessions.save(doc));
+  ipcMain.handle('cwm:delete-session', (_, id: string) => cwmSessions.delete(id));
+  ipcMain.handle('cwm:image-providers', () => cwmMedia.imageProviders());
+  ipcMain.handle('cwm:video-providers', () => cwmMedia.videoProviders());
+  ipcMain.handle('cwm:generate-image', (_, params) => cwmMedia.generateImage(params, win));
+  ipcMain.handle('cwm:generate-video', (_, params) => cwmMedia.generateVideo(params, win));
+  ipcMain.handle('cwm:cancel-media', (_, jobId: string) => cwmMedia.cancel(jobId));
+  ipcMain.handle('cwm:save-media-as', (_, filePath: string) => cwmMedia.saveAs(filePath, win));
+  ipcMain.handle('cwm:read-media', (_, filePath: string) => cwmMedia.readMedia(filePath));
 
   // ── External ──────────────────────────────────────────────
   ipcMain.handle('external:open', (_, url: string) => {

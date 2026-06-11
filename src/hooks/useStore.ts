@@ -15,7 +15,7 @@ interface AppState {
   hasAnthropicKey: boolean;
 
   // Sidebar
-  activePanel: 'files' | 'chat' | 'image' | 'settings' | 'brain';
+  activePanel: 'files' | 'chat' | 'image' | 'settings' | 'brain' | 'cwm';
 
   // Chat
   messages: ChatMessage[];
@@ -38,7 +38,7 @@ interface AppState {
   setChatMode: (mode: ChatMode) => void;
   setHasAnthropicKey: (has: boolean) => void;
 
-  setActivePanel: (panel: 'files' | 'chat' | 'image' | 'settings' | 'brain') => void;
+  setActivePanel: (panel: 'files' | 'chat' | 'image' | 'settings' | 'brain' | 'cwm') => void;
 
   addMessage: (msg: ChatMessage) => void;
   appendToMessage: (id: string, chunk: string, field?: 'content' | 'thinking') => void;

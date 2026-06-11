@@ -401,6 +401,67 @@ const api = {
       ipcRenderer.invoke('cdesign:paths'),
   },
 
+  // ── Chat With Model (CWM) — conversational mode ──────────
+  // No agent/workspace/terminal access on purpose: sessions + media only.
+  cwm: {
+    listSessions: (): Promise<
+      { id: string; title: string; createdAt: number; updatedAt: number; messageCount: number; model?: string }[]
+    > => ipcRenderer.invoke('cwm:list-sessions'),
+    getSession: (id: string): Promise<{ ok: boolean; session?: any; error?: string }> =>
+      ipcRenderer.invoke('cwm:get-session', id),
+    saveSession: (doc: {
+      id: string;
+      title: string;
+      createdAt: number;
+      updatedAt: number;
+      messageCount: number;
+      model?: string;
+      messages: unknown[];
+    }): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('cwm:save-session', doc),
+    deleteSession: (id: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('cwm:delete-session', id),
+    imageProviders: (): Promise<{ id: string; label: string; model: string; hasKey: boolean }[]> =>
+      ipcRenderer.invoke('cwm:image-providers'),
+    videoProviders: (): Promise<{ id: string; label: string; model: string; hasKey: boolean }[]> =>
+      ipcRenderer.invoke('cwm:video-providers'),
+    generateImage: (params: {
+      jobId: string;
+      providerId: string;
+      model?: string;
+      prompt: string;
+      size?: string;
+    }) => ipcRenderer.invoke('cwm:generate-image', params),
+    generateVideo: (params: {
+      jobId: string;
+      providerId: string;
+      model?: string;
+      prompt: string;
+      seconds?: number;
+    }) => ipcRenderer.invoke('cwm:generate-video', params),
+    cancelMedia: (jobId: string): Promise<boolean> => ipcRenderer.invoke('cwm:cancel-media', jobId),
+    saveMediaAs: (filePath: string): Promise<{ ok: boolean; path?: string; error?: string }> =>
+      ipcRenderer.invoke('cwm:save-media-as', filePath),
+    readMedia: (filePath: string): Promise<{ ok: boolean; base64?: string; error?: string }> =>
+      ipcRenderer.invoke('cwm:read-media', filePath),
+    onMediaProgress: (
+      cb: (data: {
+        jobId: string;
+        kind: 'image' | 'video';
+        status: 'queued' | 'generating' | 'done' | 'failed' | 'cancelled';
+        percent?: number;
+        filePath?: string;
+        fileName?: string;
+        mediaType?: string;
+        base64?: string;
+        error?: string;
+      }) => void
+    ) => {
+      const handler = (_: any, data: any) => cb(data);
+      ipcRenderer.on('cwm:media-progress', handler);
+      return () => ipcRenderer.removeListener('cwm:media-progress', handler);
+    },
+  },
+
   // ── Legacy untyped settings ──────────────────────────────
   settings: {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),

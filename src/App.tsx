@@ -10,6 +10,7 @@ import { ModelSelectorBar } from './components/ModelSelectorBar';
 import { TerminalApprovalDialog } from './components/TerminalApprovalDialog';
 import { UpdateBanner } from './components/UpdateBanner';
 import { BrainPanel } from './components/BrainPanel';
+import { CwmPanel } from './components/CwmPanel';
 import { useStore } from './hooks/useStore';
 import { useBrainStore } from './lib/brain-store';
 
@@ -157,6 +158,21 @@ export function App() {
     return (
       <div className="flex items-center justify-center h-full bg-bg">
         <div className="text-text-secondary">Загрузка CodeDert...</div>
+      </div>
+    );
+  }
+
+  // Chat With Model: a standalone conversational mode. Full-area layout,
+  // deliberately without the IDE chat/editor — no agent loop, no workspace.
+  if (activePanel === 'cwm') {
+    return (
+      <div className="flex flex-col h-full bg-bg">
+        <UpdateBanner />
+        <div className="flex flex-1 min-h-0">
+          <Sidebar />
+          <CwmPanel />
+        </div>
+        {needsOnboarding && <OnboardingDialog />}
       </div>
     );
   }

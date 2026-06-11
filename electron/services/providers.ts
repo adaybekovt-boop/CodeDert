@@ -50,10 +50,14 @@ export interface ProviderModel {
   provider: string;
 }
 
-export interface ChatMessageIn {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
+// Multimodal content packing lives in provider-content.ts (pure, testable).
+export type { ContentPart, ChatMessageIn } from './provider-content.js';
+import {
+  packAnthropicContent,
+  packOpenAiContent,
+  hasAttachmentParts,
+  type ChatMessageIn,
+} from './provider-content.js';
 
 interface ProviderStoreShape {
   baseUrlOverrides?: Record<string, string>;
@@ -68,6 +72,16 @@ const LIST_TIMEOUT_MS = 15_000;
 /** Keystore account per provider. Anthropic keeps its legacy account name. */
 function keyAccount(providerId: string): string {
   return providerId === 'anthropic' ? 'anthropic_api_key' : `provider_${providerId}_api_key`;
+}
+
+/** Shared with CWM media generation so keys live in exactly one scheme. */
+export function providerKeyAccount(providerId: string): string {
+  return keyAccount(providerId);
+}
+
+/** Effective base URL (override-aware) — shared with CWM media generation. */
+export function providerBaseUrl(providerId: string): string {
+  return baseUrl(providerId);
 }
 
 function baseUrl(providerId: string): string {
@@ -254,7 +268,9 @@ async function streamText(params: StreamParams): Promise<StreamResult> {
         model,
         max_tokens: maxTokens,
         stream: true,
-        messages: messages.filter((m) => m.role !== 'system'),
+        messages: messages
+          .filter((m) => m.role !== 'system')
+          .map((m) => ({ role: m.role, content: packAnthropicContent(m.content) })),
       };
       if (system) body.system = system;
       if (temperature !== undefined) body.temperature = temperature;
@@ -294,7 +310,13 @@ async function streamText(params: StreamParams): Promise<StreamResult> {
     const finalMessages: ChatMessageIn[] = system
       ? [{ role: 'system', content: system }, ...messages.filter((m) => m.role !== 'system')]
       : messages;
-    const body: any = { model, messages: finalMessages, stream: true, max_tokens: maxTokens };
+    let packedMessages: { role: string; content: unknown }[];
+    try {
+      packedMessages = finalMessages.map((m) => ({ role: m.role, content: packOpenAiContent(m.content) }));
+    } catch (packErr: any) {
+      return { ok: false, text: '', error: String(packErr?.message || packErr) };
+    }
+    const body: any = { model, messages: packedMessages, stream: true, max_tokens: maxTokens };
     if (temperature !== undefined) body.temperature = temperature;
     const headers: Record<string, string> = {
       'content-type': 'application/json',
@@ -313,7 +335,15 @@ async function streamText(params: StreamParams): Promise<StreamResult> {
     });
     if (!res.ok || !res.body) {
       const errText = await safeReadError(res);
-      return { ok: false, text: '', error: redact(`HTTP ${res.status}${errText ? `: ${errText}` : ''}`, key) };
+      const visionHint =
+        (res.status === 400 || res.status === 422) && hasAttachmentParts(messages)
+          ? ' Похоже, эта модель не принимает вложения — выберите мультимодальную (vision) модель.'
+          : '';
+      return {
+        ok: false,
+        text: '',
+        error: redact(`HTTP ${res.status}${errText ? `: ${errText}` : ''}${visionHint}`, key),
+      };
     }
     await readSse(res.body, signal, (data) => {
       const delta = data?.choices?.[0]?.delta;

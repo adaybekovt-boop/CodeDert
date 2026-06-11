@@ -8,6 +8,7 @@ import { maybeAutoStartSd } from './services/sd-launcher.js';
 import { isSafeExternalUrl } from './services/path-safety.js';
 import { mcp } from './services/mcp.js';
 import { updater } from './services/updater.js';
+import { cwmMedia } from './services/cwm-media.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -100,6 +101,9 @@ function createWindow() {
 app.whenReady().then(() => {
   log('app ready');
   createWindow();
+
+  // Housekeeping: drop CWM-generated media older than 30 days.
+  cwmMedia.cleanupOldMedia(30).catch((err) => log('cwm media cleanup failed', err));
 
   // Try to auto-launch Ollama in the background. Result is reported to the
   // renderer over the `ollama:auto-start` channel so onboarding/settings can
