@@ -152,7 +152,7 @@ export const DEFAULT_IGNORED_FOLDERS = [
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   provider: {
     ollama: { baseUrl: 'http://localhost:11434', autoStart: true },
-    sd: { baseUrl: 'http://localhost:7860', autoStart: true, webuiPath: '' },
+    sd: { baseUrl: 'http://localhost:7860', autoStart: false, webuiPath: '' },
   },
   models: {
     chat: '',
@@ -259,7 +259,9 @@ export function normalizeAppSettings(input: unknown): AppSettings {
       },
       sd: {
         baseUrl: str(i.provider?.sd?.baseUrl, D.provider.sd.baseUrl),
-        autoStart: bool(i.provider?.sd?.autoStart, D.provider.sd.autoStart),
+        // Hard invariant: the SD webui never auto-starts (heavy GPU process,
+        // minutes of boot). Launch is manual-only via the image panel button.
+        autoStart: false,
         webuiPath: str(i.provider?.sd?.webuiPath, D.provider.sd.webuiPath),
       },
     },
