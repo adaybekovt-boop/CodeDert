@@ -140,6 +140,7 @@ export async function useChatExternal(opts: ExternalSendOptions) {
       system: systemPrompt,
       workspaceRoot,
       requestId,
+      provider: selectedModel.provider,
     });
   } else {
     chatRegistry.setActive?.(requestId, 'ollama');

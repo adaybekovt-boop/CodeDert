@@ -15,6 +15,7 @@
 import type { BrowserWindow } from 'electron';
 import Store from 'electron-store';
 import { keystore } from './keystore.js';
+import { isChatCompletionModel } from './provider-model-filter.js';
 
 export type ProviderKind = 'openai' | 'anthropic';
 
@@ -107,6 +108,16 @@ function redact(msg: string, key?: string | null): string {
   return out.slice(0, 500);
 }
 
+function friendlyChatError(status: number, errText: string, providerId: string, model: string): string {
+  if (/image model|video model|images\/generations|videos\/generations/i.test(errText)) {
+    return `HTTP ${status}: ${model} is a media-generation model, not a chat model. Use it from the image/video generation panel, not the chat model selector.`;
+  }
+  if (/multi agent requests are not allowed on chat completions/i.test(errText)) {
+    return `HTTP ${status}: ${model} is not available through normal chat completions for ${providerId}. Pick a regular chat/code model from this provider.`;
+  }
+  return `HTTP ${status}${errText ? `: ${errText}` : ''}`;
+}
+
 function normalizeModels(providerId: string, raw: any): ProviderModel[] {
   const arr: any[] = Array.isArray(raw?.data) ? raw.data : Array.isArray(raw?.models) ? raw.models : [];
   const out: ProviderModel[] = [];
@@ -121,6 +132,7 @@ function normalizeModels(providerId: string, raw: any): ProviderModel[] {
       (typeof m?.display_name === 'string' && m.display_name) ||
       (typeof m?.name === 'string' && m.name !== id && !m.name.startsWith('models/') && m.name) ||
       id;
+    if (!isChatCompletionModel(providerId, { ...m, id, displayName })) continue;
     out.push({ id, displayName: String(displayName), provider: providerId });
   }
   out.sort((a, b) => a.id.localeCompare(b.id));
@@ -141,11 +153,13 @@ async function fetchModels(providerId: string, key: string): Promise<{ ok: boole
       });
       if (!res.ok) return { ok: false, error: `HTTP ${res.status}: ключ отклонён или нет доступа` };
       const data: any = await res.json();
-      const models = (data?.data || []).map((m: any) => ({
-        id: m.id,
-        displayName: m.display_name || m.id,
-        provider: providerId,
-      }));
+      const models = (data?.data || [])
+        .filter((m: any) => isChatCompletionModel(providerId, m))
+        .map((m: any) => ({
+          id: m.id,
+          displayName: m.display_name || m.id,
+          provider: providerId,
+        }));
       return { ok: true, models };
     }
 
@@ -174,13 +188,13 @@ async function fetchModels(providerId: string, key: string): Promise<{ ok: boole
 
 function cacheModels(providerId: string, models: ProviderModel[]): void {
   const cache = (store.get('modelCache') || {}) as Record<string, ProviderModel[]>;
-  cache[providerId] = models;
+  cache[providerId] = models.filter((m) => isChatCompletionModel(providerId, m));
   store.set('modelCache', cache);
 }
 
 function cachedModels(providerId: string): ProviderModel[] {
   const cache = (store.get('modelCache') || {}) as Record<string, ProviderModel[]>;
-  return cache[providerId] || [];
+  return (cache[providerId] || []).filter((m) => isChatCompletionModel(providerId, m));
 }
 
 // ── Streaming ────────────────────────────────────────────────
@@ -285,6 +299,14 @@ async function streamText(params: StreamParams): Promise<StreamResult> {
   const base = baseUrl(providerId);
   if (!base || !isHttpUrl(base)) return { ok: false, text: '', error: 'base URL не задан или некорректен' };
 
+  if (!isChatCompletionModel(providerId, model)) {
+    return {
+      ok: false,
+      text: '',
+      error: `${model} is not a chat-completions model. Choose a regular chat/code model, or use the media generation panel for image/video models.`,
+    };
+  }
+
   const maxTokens = clampInt(params.maxTokens, 64, 64_000, 8192);
   const temperature = params.temperature;
 
@@ -316,7 +338,7 @@ async function streamText(params: StreamParams): Promise<StreamResult> {
       });
       if (!res.ok || !res.body) {
         const errText = await safeReadError(res);
-        return { ok: false, text: '', error: redact(`HTTP ${res.status}${errText ? `: ${errText}` : ''}`, key) };
+        return { ok: false, text: '', error: redact(friendlyChatError(res.status, errText, providerId, model), key) };
       }
       await readSse(res.body, signal, (data) => {
         if (data.type === 'content_block_delta') {
@@ -373,7 +395,7 @@ async function streamText(params: StreamParams): Promise<StreamResult> {
       return {
         ok: false,
         text: '',
-        error: redact(`HTTP ${res.status}${errText ? `: ${errText}` : ''}${visionHint}`, key),
+        error: redact(`${friendlyChatError(res.status, errText, providerId, model)}${visionHint}`, key),
       };
     }
     await readSse(res.body, signal, (data) => {
