@@ -176,10 +176,10 @@ function HardwareCheck({ onNext }: { onNext: () => void }) {
   }
 
   const tierLabels: Record<string, { label: string; emoji: string; color: string }> = {
-    extreme: { label: 'Топ-класс', emoji: '🚀', color: 'text-fuchsia-400' },
-    high: { label: 'Высокий', emoji: '⚡', color: 'text-emerald-400' },
-    medium: { label: 'Средний', emoji: '✓', color: 'text-blue-400' },
-    low: { label: 'Базовый', emoji: '·', color: 'text-amber-400' },
+    extreme: { label: 'Топ-класс', emoji: '🚀', color: 'text-white' },
+    high: { label: 'Высокий', emoji: '⚡', color: 'text-zinc-200' },
+    medium: { label: 'Средний', emoji: '✓', color: 'text-zinc-400' },
+    low: { label: 'Базовый', emoji: '·', color: 'text-zinc-500' },
   };
   const tier = tierLabels[hw.tier];
 

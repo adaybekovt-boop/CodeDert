@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, type CSSProperties } from 'react';
 import {
   Background,
   Controls,
@@ -93,45 +93,42 @@ function layoutVisible(
 
 // ── Custom node renderers ────────────────────────────────────
 
+/** Deterministic stagger so the glow wave travels across the map. */
+function pulseDelay(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return `${(Math.abs(h) % 8) * 0.45}s`;
+}
+
 function FolderNode({ data }: {
   data: { node: ProjectMapNode; depth: number; expanded: boolean };
 }) {
-  const { node, depth, expanded } = data;
+  const { node, expanded } = data;
   const isRoot = node.parentId === null;
   const Icon = expanded ? FolderOpen : Folder;
   return (
     <div
-      className={`group rounded-2xl backdrop-blur-sm border shadow-lg flex items-center gap-2 cursor-pointer select-none transition-transform hover:scale-[1.03] animate-mapNodeIn ${
-        isRoot ? 'min-w-[170px] px-5 py-3' : 'min-w-[130px] px-4 py-2.5'
-      }`}
-      style={{
-        background: isRoot
-          ? 'linear-gradient(135deg, rgba(139, 92, 246, 0.28), rgba(99, 102, 241, 0.16))'
-          : `linear-gradient(135deg, rgba(99, 102, 241, ${Math.max(0.1, 0.2 - depth * 0.02)}), rgba(139, 92, 246, ${Math.max(0.06, 0.12 - depth * 0.01)}))`,
-        borderColor: expanded ? 'rgba(167, 139, 250, 0.65)' : 'rgba(129, 140, 248, 0.35)',
-        boxShadow: isRoot
-          ? '0 0 32px rgba(139, 92, 246, 0.35), 0 4px 16px rgba(0,0,0,0.3)'
-          : expanded
-            ? '0 0 22px rgba(139, 92, 246, 0.3), 0 2px 8px rgba(0,0,0,0.25)'
-            : '0 0 14px rgba(99, 102, 241, 0.15), 0 2px 8px rgba(0,0,0,0.25)',
-      }}
+      className={`group rounded-2xl flex items-center gap-2 cursor-pointer select-none transition-transform hover:scale-[1.03] map-node-anim glass-node ${
+        isRoot || expanded ? 'glass-node--bright' : ''
+      } ${isRoot ? 'min-w-[170px] px-5 py-3' : 'min-w-[130px] px-4 py-2.5'}`}
+      style={{ '--pulse-delay': pulseDelay(node.id) } as CSSProperties}
     >
       <Handle type="target" position={Position.Left} className="!opacity-0" />
       <Icon
-        className={isRoot ? 'w-5 h-5 text-violet-300' : 'w-4 h-4 text-indigo-300'}
+        className={isRoot ? 'w-5 h-5 text-white/90' : 'w-4 h-4 text-white/70'}
         strokeWidth={1.5}
       />
       <div className="flex-1 min-w-0">
-        <div className={`font-medium truncate ${isRoot ? 'text-base text-white' : 'text-sm text-slate-100'}`}>
+        <div className={`font-medium truncate ${isRoot ? 'text-base text-white' : 'text-sm text-zinc-100'}`}>
           {node.name}
         </div>
         {node.childCount ? (
-          <div className="text-[10px] text-slate-400">{node.childCount} элем.</div>
+          <div className="text-[10px] text-zinc-500">{node.childCount} элем.</div>
         ) : null}
       </div>
       {!!node.childCount && (
         <ChevronRight
-          className={`w-3.5 h-3.5 text-violet-300/80 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          className={`w-3.5 h-3.5 text-white/50 transition-transform ${expanded ? 'rotate-90' : ''}`}
           strokeWidth={2}
         />
       )}
@@ -145,16 +142,16 @@ function FileNode({ data }: { data: { node: ProjectMapNode } }) {
   const hasPreview = !!node.preview;
   return (
     <div
-      className="rounded-xl backdrop-blur-sm border bg-slate-900/70 border-slate-700/60 shadow-md hover:border-indigo-400/60 hover:shadow-indigo-500/20 transition-colors animate-mapNodeIn"
-      style={{ width: hasPreview ? FILE_W : 150 }}
+      className="rounded-xl glass-node hover:scale-[1.02] transition-transform map-node-anim"
+      style={{ width: hasPreview ? FILE_W : 150, '--pulse-delay': pulseDelay(node.id) } as CSSProperties}
     >
       <Handle type="target" position={Position.Left} className="!opacity-0" />
-      <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-slate-700/50">
-        <FileCode className="w-3 h-3 text-slate-400 shrink-0" strokeWidth={1.5} />
-        <span className="text-[11px] text-slate-200 truncate font-mono">{node.name}</span>
+      <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-white/[0.08]">
+        <FileCode className="w-3 h-3 text-zinc-500 shrink-0" strokeWidth={1.5} />
+        <span className="text-[11px] text-zinc-200 truncate font-mono">{node.name}</span>
       </div>
       {hasPreview && (
-        <pre className="px-2.5 py-1.5 text-[9px] leading-tight text-slate-400/90 font-mono overflow-hidden max-h-[60px]">
+        <pre className="px-2.5 py-1.5 text-[9px] leading-tight text-zinc-500 font-mono overflow-hidden max-h-[60px]">
           {node.preview}
         </pre>
       )}
@@ -231,9 +228,9 @@ export function ProjectMapPanel() {
         source: n.parentId,
         target: n.id,
         type: 'smoothstep',
-        animated: animateEdges && n.kind === 'folder',
+        animated: animateEdges,
         style: {
-          stroke: n.kind === 'folder' ? 'rgba(139, 92, 246, 0.5)' : 'rgba(100, 116, 139, 0.35)',
+          stroke: n.kind === 'folder' ? 'rgba(255, 255, 255, 0.30)' : 'rgba(255, 255, 255, 0.14)',
           strokeWidth: n.kind === 'folder' ? 1.5 : 1,
         },
       });
@@ -257,7 +254,7 @@ export function ProjectMapPanel() {
   return (
     <div className="flex-1 flex flex-col bg-bg min-h-0">
       <div className="px-4 py-2 border-b border-bg-border flex items-center gap-3 bg-bg-panel/50">
-        <Network className="w-4 h-4 text-violet-400" strokeWidth={1.5} />
+        <Network className="w-4 h-4 text-zinc-300" strokeWidth={1.5} />
         <div className="text-sm font-medium text-text-primary">Карта проекта</div>
         {projectMapGraph && (
           <div className="text-xs text-text-secondary">
@@ -278,7 +275,7 @@ export function ProjectMapPanel() {
         </button>
       </div>
 
-      <div className="flex-1 relative" style={{ background: 'radial-gradient(ellipse at center, rgba(76, 29, 149, 0.08) 0%, rgba(15, 23, 42, 0) 70%)' }}>
+      <div className="flex-1 relative" style={{ background: 'radial-gradient(ellipse at center, rgba(255, 255, 255, 0.03) 0%, rgba(0, 0, 0, 0) 70%)' }}>
         {projectMapLoading && !projectMapGraph ? (
           <div className="absolute inset-0 flex items-center justify-center text-text-secondary">
             Строим карту проекта…
@@ -303,24 +300,24 @@ export function ProjectMapPanel() {
             onNodeMouseEnter={(_, n) => setHoverInfo((n.data as any).node)}
             onNodeMouseLeave={() => setHoverInfo(null)}
           >
-            <Background color="#4c1d95" gap={32} size={1} style={{ opacity: 0.15 }} />
+            <Background color="#3f3f46" gap={32} size={1} style={{ opacity: 0.25 }} />
             <Controls className="!bg-bg-panel !border-bg-border" />
             {showMini && (
               <MiniMap
                 pannable
                 zoomable
                 className="!bg-bg-panel !border-bg-border"
-                nodeColor={(n) => (n.type === 'folder' ? '#8b5cf6' : '#475569')}
-                maskColor="rgba(15, 23, 42, 0.6)"
+                nodeColor={(n) => (n.type === 'folder' ? '#d4d4d8' : '#52525b')}
+                maskColor="rgba(10, 10, 11, 0.65)"
               />
             )}
           </ReactFlow>
         )}
 
         {hoverInfo && hoverInfo.preview && (
-          <div className="absolute bottom-4 left-4 right-4 max-h-32 overflow-hidden rounded-lg border border-bg-border bg-bg-panel/95 backdrop-blur-sm p-3 shadow-xl pointer-events-none">
-            <div className="text-[11px] font-mono text-violet-300 mb-1">{hoverInfo.relPath}</div>
-            <pre className="text-[10px] text-slate-300 font-mono overflow-hidden whitespace-pre-wrap">
+          <div className="absolute bottom-4 left-4 right-4 max-h-32 overflow-hidden rounded-xl glass-node p-3 pointer-events-none">
+            <div className="text-[11px] font-mono text-zinc-300 mb-1">{hoverInfo.relPath}</div>
+            <pre className="text-[10px] text-zinc-400 font-mono overflow-hidden whitespace-pre-wrap">
               {hoverInfo.preview}
             </pre>
           </div>
