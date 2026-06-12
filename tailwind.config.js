@@ -5,28 +5,29 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Graphite monochrome: pure neutral greys, no blue/orange tint.
         bg: {
-          DEFAULT: '#0d1117',
-          panel: '#161b22',
-          elevated: '#1c2128',
-          border: '#30363d',
-          inset: '#0a0d12',
-          subtle: '#21262d',
+          DEFAULT: '#0a0a0b',
+          panel: '#121214',
+          elevated: '#1a1a1d',
+          border: '#2a2a2e',
+          inset: '#060607',
+          subtle: '#1f1f23',
         },
         status: {
-          running: '#d29922',
-          done: '#3fb950',
-          error: '#f85149',
+          running: '#b8b8bd',
+          done: '#34d399',
+          error: '#f87171',
         },
         accent: {
-          DEFAULT: '#d4a574',
-          hover: '#e3b888',
-          muted: '#8b6e4a',
+          DEFAULT: '#e8e8ea',
+          hover: '#ffffff',
+          muted: '#8e8e93',
         },
         text: {
-          primary: '#e6edf3',
-          secondary: '#9ca3af',
-          muted: '#6b7280',
+          primary: '#f4f4f5',
+          secondary: '#a1a1a6',
+          muted: '#6e6e73',
         },
       },
       fontFamily: {

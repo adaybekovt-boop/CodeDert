@@ -40,7 +40,7 @@ function createWindow() {
     minHeight: 600,
     title: 'CodeDert',
     icon: fs.existsSync(APP_ICON) ? APP_ICON : undefined,
-    backgroundColor: '#0d1117',
+    backgroundColor: '#0a0a0b',
     frame: true,
     titleBarStyle: 'default',
     autoHideMenuBar: true,
