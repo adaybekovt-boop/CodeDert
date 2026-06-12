@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Background,
   Controls,
@@ -10,120 +10,114 @@ import {
   Position,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Network, RefreshCw, Folder, FileCode } from 'lucide-react';
+import { Network, RefreshCw, Folder, FolderOpen, FileCode, ChevronRight } from 'lucide-react';
 import { useStore, type ProjectMapGraph, type ProjectMapNode } from '../hooks/useStore';
 
 /**
- * Project Map — brain-style visualization of the workspace.
+ * Project Map — interactive folder-tree visualization.
  *
- * Layout: hierarchical radial. The root sits at (0,0). Each child folder gets
- * its own angular sector, children orbit their parent at increasing radius.
- * Layout is computed ONCE per graph (memoized) — no physics, no per-frame work.
+ * Hierarchy-first: the root folder sits on the left; clicking a folder
+ * expands its children (subfolders + files) as a branch to the right —
+ * mindmap style. Nothing below an unexpanded folder is rendered, so even
+ * huge projects stay light.
  *
- * Performance choices:
- *  - viewport-only rendering (ReactFlow default)
- *  - simple CSS-only entrance animation (1 transform per node)
- *  - no minimap on big graphs (>120 nodes)
- *  - no edge animation past 80 nodes
+ * Layout: tidy left-to-right tree. x = depth * COL_W; y is assigned by
+ * leaf-counting so parents sit centered against their children. Computed
+ * in a single useMemo pass — no physics, no per-frame work.
  */
 
-const RADIUS_BASE = 260;
-const RADIUS_STEP = 220;
+const COL_W = 320;       // horizontal distance between depth levels
+const ROW_H = 92;        // vertical distance between sibling leaves
+const FILE_W = 220;
 
-interface LaidOutNode {
-  id: string;
-  x: number;
-  y: number;
-  data: ProjectMapNode;
-  depth: number;
+interface TreeIndex {
+  byId: Map<string, ProjectMapNode>;
+  childrenOf: Map<string, ProjectMapNode[]>;
+  rootId: string;
 }
 
-function layoutGraph(graph: ProjectMapGraph): {
-  nodes: LaidOutNode[];
-  edges: { from: string; to: string }[];
-} {
-  if (!graph || graph.nodes.length === 0) return { nodes: [], edges: [] };
-
+function buildIndex(graph: ProjectMapGraph): TreeIndex {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  const childrenOf = new Map<string, string[]>();
-  for (const e of graph.edges) {
-    const arr = childrenOf.get(e.from) || [];
-    arr.push(e.to);
-    childrenOf.set(e.from, arr);
-  }
-
-  const root = graph.nodes.find((n) => n.parentId === null) || graph.nodes[0];
-  const positions = new Map<string, { x: number; y: number; depth: number }>();
-  positions.set(root.id, { x: 0, y: 0, depth: 0 });
-
-  // BFS, each level placed in a circular ring around its parent's sector.
-  type QItem = { id: string; angleStart: number; angleEnd: number; depth: number };
-  const queue: QItem[] = [{ id: root.id, angleStart: 0, angleEnd: Math.PI * 2, depth: 0 }];
-
-  while (queue.length > 0) {
-    const { id, angleStart, angleEnd, depth } = queue.shift()!;
-    const children = childrenOf.get(id) || [];
-    if (children.length === 0) continue;
-
-    // Sort: folders first (so they cluster), then files.
-    children.sort((a, b) => {
-      const na = byId.get(a)!;
-      const nb = byId.get(b)!;
-      if (na.kind !== nb.kind) return na.kind === 'folder' ? -1 : 1;
-      return na.name.localeCompare(nb.name);
-    });
-
-    const parentPos = positions.get(id)!;
-    const radius = RADIUS_BASE + RADIUS_STEP * depth;
-    const sector = angleEnd - angleStart;
-    const step = sector / children.length;
-
-    children.forEach((cid, i) => {
-      const angle = angleStart + step * (i + 0.5);
-      const cx = parentPos.x + Math.cos(angle) * radius;
-      const cy = parentPos.y + Math.sin(angle) * radius;
-      positions.set(cid, { x: cx, y: cy, depth: depth + 1 });
-      // Give each child a narrower sector centered on its angle for the next level.
-      const childSector = step * 0.85;
-      queue.push({
-        id: cid,
-        angleStart: angle - childSector / 2,
-        angleEnd: angle + childSector / 2,
-        depth: depth + 1,
-      });
-    });
-  }
-
-  const laidOut: LaidOutNode[] = [];
+  const childrenOf = new Map<string, ProjectMapNode[]>();
   for (const n of graph.nodes) {
-    const p = positions.get(n.id);
-    if (!p) continue;
-    laidOut.push({ id: n.id, x: p.x, y: p.y, data: n, depth: p.depth });
+    if (!n.parentId) continue;
+    const arr = childrenOf.get(n.parentId) || [];
+    arr.push(n);
+    childrenOf.set(n.parentId, arr);
   }
-  return { nodes: laidOut, edges: graph.edges };
+  // Folders first, then files, both alphabetical — stable branch order.
+  for (const arr of childrenOf.values()) {
+    arr.sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }
+  const root = graph.nodes.find((n) => n.parentId === null) || graph.nodes[0];
+  return { byId, childrenOf, rootId: root.id };
+}
+
+/**
+ * Lay out only the visible subtree (expanded folders). Returns positions
+ * keyed by node id. Classic tidy tree: leaves get sequential rows, every
+ * parent is centered over its visible children.
+ */
+function layoutVisible(
+  index: TreeIndex,
+  expanded: Set<string>
+): { positions: Map<string, { x: number; y: number; depth: number }>; visible: ProjectMapNode[] } {
+  const positions = new Map<string, { x: number; y: number; depth: number }>();
+  const visible: ProjectMapNode[] = [];
+  let nextRow = 0;
+
+  function place(id: string, depth: number): number {
+    const node = index.byId.get(id);
+    if (!node) return nextRow * ROW_H;
+    visible.push(node);
+
+    const kids = node.kind === 'folder' && expanded.has(id) ? index.childrenOf.get(id) || [] : [];
+    if (kids.length === 0) {
+      const y = nextRow * ROW_H;
+      nextRow += 1;
+      positions.set(id, { x: depth * COL_W, y, depth });
+      return y;
+    }
+    const childYs = kids.map((k) => place(k.id, depth + 1));
+    const y = (childYs[0] + childYs[childYs.length - 1]) / 2;
+    positions.set(id, { x: depth * COL_W, y, depth });
+    return y;
+  }
+
+  place(index.rootId, 0);
+  return { positions, visible };
 }
 
 // ── Custom node renderers ────────────────────────────────────
 
-function FolderNode({ data }: { data: { node: ProjectMapNode; depth: number } }) {
-  const { node, depth } = data;
+function FolderNode({ data }: {
+  data: { node: ProjectMapNode; depth: number; expanded: boolean };
+}) {
+  const { node, depth, expanded } = data;
   const isRoot = node.parentId === null;
-  const size = isRoot ? 'min-w-[160px] px-5 py-3' : 'min-w-[120px] px-4 py-2.5';
+  const Icon = expanded ? FolderOpen : Folder;
   return (
     <div
-      className={`group rounded-2xl backdrop-blur-sm border shadow-lg flex items-center gap-2 ${size} animate-mapNodeIn`}
+      className={`group rounded-2xl backdrop-blur-sm border shadow-lg flex items-center gap-2 cursor-pointer select-none transition-transform hover:scale-[1.03] animate-mapNodeIn ${
+        isRoot ? 'min-w-[170px] px-5 py-3' : 'min-w-[130px] px-4 py-2.5'
+      }`}
       style={{
         background: isRoot
-          ? 'linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(99, 102, 241, 0.15))'
-          : `linear-gradient(135deg, rgba(99, 102, 241, ${0.18 - depth * 0.02}), rgba(139, 92, 246, ${0.10 - depth * 0.01}))`,
-        borderColor: isRoot ? 'rgba(167, 139, 250, 0.6)' : 'rgba(129, 140, 248, 0.35)',
+          ? 'linear-gradient(135deg, rgba(139, 92, 246, 0.28), rgba(99, 102, 241, 0.16))'
+          : `linear-gradient(135deg, rgba(99, 102, 241, ${Math.max(0.1, 0.2 - depth * 0.02)}), rgba(139, 92, 246, ${Math.max(0.06, 0.12 - depth * 0.01)}))`,
+        borderColor: expanded ? 'rgba(167, 139, 250, 0.65)' : 'rgba(129, 140, 248, 0.35)',
         boxShadow: isRoot
           ? '0 0 32px rgba(139, 92, 246, 0.35), 0 4px 16px rgba(0,0,0,0.3)'
-          : '0 0 18px rgba(99, 102, 241, 0.2), 0 2px 8px rgba(0,0,0,0.25)',
+          : expanded
+            ? '0 0 22px rgba(139, 92, 246, 0.3), 0 2px 8px rgba(0,0,0,0.25)'
+            : '0 0 14px rgba(99, 102, 241, 0.15), 0 2px 8px rgba(0,0,0,0.25)',
       }}
     >
-      <Handle type="target" position={Position.Top} className="!opacity-0" />
-      <Folder
+      <Handle type="target" position={Position.Left} className="!opacity-0" />
+      <Icon
         className={isRoot ? 'w-5 h-5 text-violet-300' : 'w-4 h-4 text-indigo-300'}
         strokeWidth={1.5}
       />
@@ -135,7 +129,13 @@ function FolderNode({ data }: { data: { node: ProjectMapNode; depth: number } })
           <div className="text-[10px] text-slate-400">{node.childCount} элем.</div>
         ) : null}
       </div>
-      <Handle type="source" position={Position.Bottom} className="!opacity-0" />
+      {!!node.childCount && (
+        <ChevronRight
+          className={`w-3.5 h-3.5 text-violet-300/80 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          strokeWidth={2}
+        />
+      )}
+      <Handle type="source" position={Position.Right} className="!opacity-0" />
     </div>
   );
 }
@@ -146,9 +146,9 @@ function FileNode({ data }: { data: { node: ProjectMapNode } }) {
   return (
     <div
       className="rounded-xl backdrop-blur-sm border bg-slate-900/70 border-slate-700/60 shadow-md hover:border-indigo-400/60 hover:shadow-indigo-500/20 transition-colors animate-mapNodeIn"
-      style={{ width: hasPreview ? 220 : 150 }}
+      style={{ width: hasPreview ? FILE_W : 150 }}
     >
-      <Handle type="target" position={Position.Top} className="!opacity-0" />
+      <Handle type="target" position={Position.Left} className="!opacity-0" />
       <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-slate-700/50">
         <FileCode className="w-3 h-3 text-slate-400 shrink-0" strokeWidth={1.5} />
         <span className="text-[11px] text-slate-200 truncate font-mono">{node.name}</span>
@@ -158,7 +158,7 @@ function FileNode({ data }: { data: { node: ProjectMapNode } }) {
           {node.preview}
         </pre>
       )}
-      <Handle type="source" position={Position.Bottom} className="!opacity-0" />
+      <Handle type="source" position={Position.Right} className="!opacity-0" />
     </div>
   );
 }
@@ -178,6 +178,7 @@ export function ProjectMapPanel() {
     refreshProjectMap,
   } = useStore();
   const [hoverInfo, setHoverInfo] = useState<ProjectMapNode | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   // Auto-load if we have a workspace but no graph yet.
   useEffect(() => {
@@ -186,30 +187,59 @@ export function ProjectMapPanel() {
     }
   }, [workspaceRoot, projectMapGraph, projectMapLoading, refreshProjectMap]);
 
+  const index = useMemo(
+    () => (projectMapGraph && projectMapGraph.nodes.length > 0 ? buildIndex(projectMapGraph) : null),
+    [projectMapGraph]
+  );
+
+  // New graph → start with just the root expanded (top-level branches visible).
+  useEffect(() => {
+    if (index) setExpanded(new Set([index.rootId]));
+  }, [index]);
+
+  const toggleFolder = useCallback((id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
   const { nodes: rfNodes, edges: rfEdges } = useMemo(() => {
-    if (!projectMapGraph) return { nodes: [] as RFNode[], edges: [] as RFEdge[] };
-    const { nodes, edges } = layoutGraph(projectMapGraph);
-    const animateEdges = nodes.length <= 80;
-    const rNodes: RFNode[] = nodes.map((n) => ({
-      id: n.id,
-      type: n.data.kind === 'folder' ? 'folder' : 'file',
-      position: { x: n.x, y: n.y },
-      data: { node: n.data, depth: n.depth },
-      draggable: true,
-    }));
-    const rEdges: RFEdge[] = edges.map((e, i) => ({
-      id: `e${i}`,
-      source: e.from,
-      target: e.to,
-      type: 'bezier',
-      animated: animateEdges,
-      style: {
-        stroke: 'rgba(139, 92, 246, 0.35)',
-        strokeWidth: 1,
-      },
-    }));
+    if (!index) return { nodes: [] as RFNode[], edges: [] as RFEdge[] };
+    const { positions, visible } = layoutVisible(index, expanded);
+    const animateEdges = visible.length <= 80;
+
+    const rNodes: RFNode[] = visible.map((n) => {
+      const p = positions.get(n.id)!;
+      return {
+        id: n.id,
+        type: n.kind === 'folder' ? 'folder' : 'file',
+        position: { x: p.x, y: p.y },
+        data: { node: n, depth: p.depth, expanded: expanded.has(n.id) },
+        draggable: true,
+      };
+    });
+
+    const visibleIds = new Set(visible.map((n) => n.id));
+    const rEdges: RFEdge[] = [];
+    for (const n of visible) {
+      if (!n.parentId || !visibleIds.has(n.parentId)) continue;
+      rEdges.push({
+        id: `e:${n.id}`,
+        source: n.parentId,
+        target: n.id,
+        type: 'smoothstep',
+        animated: animateEdges && n.kind === 'folder',
+        style: {
+          stroke: n.kind === 'folder' ? 'rgba(139, 92, 246, 0.5)' : 'rgba(100, 116, 139, 0.35)',
+          strokeWidth: n.kind === 'folder' ? 1.5 : 1,
+        },
+      });
+    }
     return { nodes: rNodes, edges: rEdges };
-  }, [projectMapGraph]);
+  }, [index, expanded]);
 
   if (!workspaceRoot) {
     return (
@@ -220,8 +250,9 @@ export function ProjectMapPanel() {
     );
   }
 
-  const nodeCount = projectMapGraph?.nodes.length || 0;
-  const showMini = nodeCount > 0 && nodeCount <= 120;
+  const visibleCount = rfNodes.length;
+  const totalCount = projectMapGraph?.nodes.length || 0;
+  const showMini = visibleCount > 0 && visibleCount <= 120;
 
   return (
     <div className="flex-1 flex flex-col bg-bg min-h-0">
@@ -230,7 +261,7 @@ export function ProjectMapPanel() {
         <div className="text-sm font-medium text-text-primary">Карта проекта</div>
         {projectMapGraph && (
           <div className="text-xs text-text-secondary">
-            {projectMapGraph.rootName} · {nodeCount} узл.
+            {projectMapGraph.rootName} · {visibleCount}/{totalCount} узл. · клик по папке раскрывает её
           </div>
         )}
         <div className="flex-1" />
@@ -252,7 +283,7 @@ export function ProjectMapPanel() {
           <div className="absolute inset-0 flex items-center justify-center text-text-secondary">
             Строим карту проекта…
           </div>
-        ) : nodeCount === 0 ? (
+        ) : totalCount === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center text-text-secondary">
             Карта пуста
           </div>
@@ -265,6 +296,10 @@ export function ProjectMapPanel() {
             minZoom={0.1}
             maxZoom={1.5}
             proOptions={{ hideAttribution: true }}
+            onNodeClick={(_, n) => {
+              const data = n.data as any;
+              if (data?.node?.kind === 'folder') toggleFolder(n.id);
+            }}
             onNodeMouseEnter={(_, n) => setHoverInfo((n.data as any).node)}
             onNodeMouseLeave={() => setHoverInfo(null)}
           >
