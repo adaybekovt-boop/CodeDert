@@ -209,15 +209,17 @@ export interface StreamResult {
 async function readSse(
   body: ReadableStream<Uint8Array>,
   signal: AbortSignal,
-  cb: (data: any) => void
+  cb: (data: any) => boolean | void
 ): Promise<void> {
   // If no chunk arrives for this long, stop reading — avoids silent hangs when
   // a cloud provider stalls mid-stream (e.g. during a tool call generation).
   const STALL_MS = 90_000;
+  const MEANINGFUL_IDLE_MS = 60_000;
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
   let stallTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastMeaningfulAt = Date.now();
 
   type ReadResult = Awaited<ReturnType<typeof reader.read>>;
   function readNext(): Promise<ReadResult> {
@@ -253,11 +255,12 @@ async function readSse(
         const payload = t.slice(5).trim();
         if (!payload || payload === '[DONE]') continue;
         try {
-          cb(JSON.parse(payload));
+          if (cb(JSON.parse(payload))) lastMeaningfulAt = Date.now();
         } catch {
           /* skip malformed */
         }
       }
+      if (Date.now() - lastMeaningfulAt > MEANINGFUL_IDLE_MS) break;
     }
   } finally {
     clearTimeout(stallTimer);
@@ -320,8 +323,10 @@ async function streamText(params: StreamParams): Promise<StreamResult> {
           if (data.delta?.type === 'text_delta' && data.delta.text) {
             text += data.delta.text;
             onText(data.delta.text);
+            return true;
           } else if (data.delta?.type === 'thinking_delta' && data.delta.thinking && onThinking) {
             onThinking(data.delta.thinking);
+            return true;
           }
         } else if (data.type === 'message_delta' && data.usage) {
           usage.outputTokens = data.usage.output_tokens;
@@ -376,10 +381,14 @@ async function streamText(params: StreamParams): Promise<StreamResult> {
       if (delta?.content) {
         text += delta.content;
         onText(delta.content);
+        return true;
       }
       // DeepSeek-R1 / Qwen reasoning models stream thoughts separately.
       const reasoning = delta?.reasoning_content || delta?.reasoning;
-      if (reasoning && onThinking) onThinking(reasoning);
+      if (reasoning && onThinking) {
+        onThinking(reasoning);
+        return true;
+      }
       if (data?.usage) {
         usage.inputTokens = data.usage.prompt_tokens;
         usage.outputTokens = data.usage.completion_tokens;

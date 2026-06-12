@@ -106,6 +106,15 @@ function findCompletedToolCall(buffer: string): ToolCall | null {
   };
 }
 
+function looksLikeToolIntentWithoutCall(text: string): boolean {
+  if (!text || findCompletedToolCall(text)) return false;
+  return (
+    /(вызов\w*|вызыва\w*|call\w*)\s+(инструмент|tool)/i.test(text) ||
+    /(сейчас|начинаю|начну|first step|первый шаг)[\s\S]{0,200}(read_file|list_dir|search|инструмент|tool|структур|entry|main)/i.test(text) ||
+    /(посмотрю|изучу|проверю|найду)[\s\S]{0,200}(структур|файл|entry|main|lib|папк)/i.test(text)
+  );
+}
+
 interface ToolResult {
   ok: boolean;
   summary: string;
@@ -660,6 +669,19 @@ export const agent = {
           // No tool call — model produced its final answer. Flush remainder.
           const remainder = assistantBuffer.slice(consumedUpto);
           if (remainder) send({ kind: 'text', chunk: remainder });
+          if (looksLikeToolIntentWithoutCall(assistantBuffer) && step < MAX_STEPS - 1) {
+            convo.push({ role: 'assistant', content: assistantBuffer });
+            convo.push({
+              role: 'user',
+              content:
+                'Ты описал намерение вызвать инструмент, но система не получила XML-блок <tool name="...">...</tool>. Сейчас выведи ровно один реальный XML-блок инструмента без пояснений. Например: <tool name="list_dir"><path>.</path></tool>',
+            });
+            send({
+              kind: 'text',
+              chunk: '\n\n_(модель описала вызов инструмента, но не отправила tool-блок; продолжаю с принудительным вызовом)_\n',
+            });
+            continue;
+          }
           break;
         }
 
