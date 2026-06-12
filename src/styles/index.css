@@ -132,3 +132,16 @@
     mapNodeIn 360ms cubic-bezier(0.22, 1, 0.36, 1) both,
     glassPulse 3.6s ease-in-out var(--pulse-delay, 0s) infinite;
 }
+
+/* Project Map: neural filaments. The bright core that rides each thread gets
+   a soft white bloom so it reads as a firing signal, not a plain dot. The
+   halo is intentionally dimmer/wider for a synaptic glow. */
+.neural-core {
+  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.9));
+}
+.neural-halo {
+  filter: blur(2px);
+}
+.neural-edge path {
+  transition: stroke 0.4s ease;
+}
