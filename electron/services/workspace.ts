@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { appSettings } from './settings.js';
 import { isProtectedPath, safeResolveInWorkspace } from './path-safety.js';
+import { findClosestFragment } from './edit-fuzzy.js';
 
 export interface FileNode {
   id: string;
@@ -227,6 +228,17 @@ export const workspace = {
       }
 
       if (count === 0) {
+        const close = findClosestFragment(content, oldString);
+        if (close) {
+          return {
+            ok: false,
+            error:
+              `old_string not found — most likely a whitespace/indentation mismatch. ` +
+              `The closest matching fragment is at lines ${close.startLine}-${close.endLine}. ` +
+              `Copy it EXACTLY as <old_string> (byte-for-byte, including leading spaces) and retry:\n` +
+              `===== exact fragment =====\n${close.fragment}\n===== end fragment =====`,
+          };
+        }
         return {
           ok: false,
           error:

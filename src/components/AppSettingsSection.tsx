@@ -358,6 +358,13 @@ export function AppSettingsSection() {
               update({ agent: { ...settings.agent, terminalMaxOutputBytes: v } } as any)
             }
           />
+          <TextField
+            label="Auto-verify command (after edits)"
+            value={settings.agent.verifyCommand ?? ''}
+            onChange={(v) => update({ agent: { ...settings.agent, verifyCommand: v } } as any)}
+            placeholder="npm run typecheck"
+            hint="Runs after a task that changed files. On failure the agent gets the output and tries to fix what it broke. Empty = off. Needs 'Allow terminal commands'."
+          />
           <div className="text-[10px] text-text-muted">
             A hard denylist always blocks <code>rm -rf /</code>, <code>format c:</code>,
             <code> mkfs</code>, <code>dd if=… of=/dev/…</code>, shutdown/reboot, fork-bombs,

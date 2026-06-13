@@ -46,7 +46,11 @@ export interface ToolCall {
  * Returns null if no complete block yet (might still be streaming).
  */
 export function findCompletedToolCall(buffer: string): ToolCall | null {
-  const openRe = /<tool\s+name=["']([a-z_]+)["']\s*>/i;
+  // Lenient on purpose: weak local models routinely drop the quotes
+  // (`<tool name=read_file>`), use single quotes, or add stray spaces around
+  // `=`. Accept all of those — the name itself is still constrained to the
+  // known tool charset, so this can't match `<tool_result ...>`.
+  const openRe = /<tool\s+name\s*=\s*["']?([a-z_]+)["']?\s*>/i;
   const open = buffer.match(openRe);
   if (!open) return null;
   const openIdx = open.index!;

@@ -3,6 +3,30 @@
 @tailwind utilities;
 
 @layer base {
+  /* shadcn/ui design tokens — graphite palette expressed as HSL channels so
+     the Tailwind token layer (background/foreground/primary/border/…) resolves.
+     The app is dark-only, so a single :root set is enough. */
+  :root {
+    --background: 240 5% 4%;
+    --foreground: 240 5% 96%;
+    --card: 240 5% 7%;
+    --card-foreground: 240 5% 96%;
+    --popover: 240 5% 7%;
+    --popover-foreground: 240 5% 96%;
+    --primary: 240 5% 91%;
+    --primary-foreground: 240 5% 4%;
+    --secondary: 240 5% 11%;
+    --secondary-foreground: 240 5% 96%;
+    --muted: 240 5% 11%;
+    --muted-foreground: 240 4% 64%;
+    --destructive: 0 72% 71%;
+    --destructive-foreground: 240 5% 4%;
+    --border: 240 5% 17%;
+    --input: 240 5% 17%;
+    --ring: 240 4% 57%;
+    --radius: 0.5rem;
+  }
+
   * {
     @apply border-bg-border;
   }

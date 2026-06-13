@@ -567,6 +567,15 @@ export const agent = {
     const MAX_NUDGES = 2;
     let nudges = 0;
 
+    // Auto-verify: after a task that changed files, run a user-configured
+    // command (typecheck / tests). On failure the model gets the output back
+    // and tries to fix what it broke. Bounded so a perpetually-red build can't
+    // loop forever.
+    const verifyCmd = (settings.agent.verifyCommand || '').trim();
+    const canVerify = !!verifyCmd && settings.agent.allowTerminal;
+    const MAX_VERIFY = 2;
+    let verifyAttempts = 0;
+
     try {
       for (let step = 0; step < MAX_STEPS; step++) {
         if (reqState.userAborted) {
@@ -652,6 +661,61 @@ export const agent = {
               chunk: '\n\n_(модель описала вызов инструмента, но не отправила tool-блок; продолжаю с принудительным вызовом)_\n',
             });
             continue;
+          }
+
+          // Final answer with file changes — run the verify command once and,
+          // if it fails, feed the output back so the model can self-correct.
+          if (
+            canVerify &&
+            touchedFiles.size > 0 &&
+            verifyAttempts < MAX_VERIFY &&
+            step < MAX_STEPS - 1
+          ) {
+            verifyAttempts++;
+            send({
+              kind: 'tool_call',
+              tool: 'verify',
+              args: { command: verifyCmd },
+              status: 'running',
+            });
+            const subId = `${requestId}::verify-${Date.now().toString(36)}`;
+            const vr = await terminal.run(
+              { command: verifyCmd, timeoutMs: settings.agent.terminalTimeoutMs, requestId: subId },
+              win
+            );
+            const passed = vr.ok && vr.code === 0;
+            send({
+              kind: 'tool_result',
+              tool: 'verify',
+              ok: passed,
+              summary: passed
+                ? 'verify passed (exit 0)'
+                : `verify failed${vr.code != null ? ` (exit ${vr.code})` : ''}`,
+              error: passed ? undefined : vr.error || 'verify failed',
+            });
+            if (reqState.userAborted) {
+              send({ kind: 'done', done: true, aborted: true });
+              return { ok: true };
+            }
+            if (!passed) {
+              const out = [vr.stdout || '', vr.stderr || '']
+                .filter(Boolean)
+                .join('\n')
+                .slice(-4000);
+              convo.push({ role: 'assistant', content: assistantBuffer });
+              convo.push({
+                role: 'user',
+                content:
+                  `Авто-проверка \`${verifyCmd}\` завершилась с ошибкой (exit ${vr.code ?? '?'}). ` +
+                  `Это, скорее всего, следствие твоих правок. Вывод:\n${out}\n\n` +
+                  `Исправь причину прямо в файлах проекта (read_file → edit_file) и продолжай.`,
+              });
+              send({
+                kind: 'text',
+                chunk: `\n\n_(авто-проверка \`${verifyCmd}\` не прошла — пробую починить)_\n`,
+              });
+              continue;
+            }
           }
           break;
         }

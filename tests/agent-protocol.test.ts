@@ -27,6 +27,25 @@ describe('findCompletedToolCall', () => {
       findCompletedToolCall('<tool_result tool="read_file">данные</tool_result>')
     ).toBeNull();
   });
+
+  it('tolerates an unquoted name (weak-model output)', () => {
+    const tc = findCompletedToolCall('<tool name=read_file>\n<path>a.ts</path>\n</tool>');
+    expect(tc).not.toBeNull();
+    expect(tc!.name).toBe('read_file');
+    expect(readField(tc!.raw, 'path')).toBe('a.ts');
+  });
+
+  it('tolerates single quotes and spaces around =', () => {
+    const tc = findCompletedToolCall("<tool name = 'list_dir'><path>src</path></tool>");
+    expect(tc).not.toBeNull();
+    expect(tc!.name).toBe('list_dir');
+  });
+
+  it('still does not confuse <tool_result> even with the lenient regex', () => {
+    expect(
+      findCompletedToolCall('<tool_result tool=read_file>x</tool_result>')
+    ).toBeNull();
+  });
 });
 
 describe('looksLikeToolIntentWithoutCall', () => {

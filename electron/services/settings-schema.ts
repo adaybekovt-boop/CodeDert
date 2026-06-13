@@ -43,6 +43,13 @@ export interface AgentSafety {
   protectedGlobs: string[];
   /** Opt-in master switch for the `run_command` tool. */
   allowTerminal: boolean;
+  /**
+   * Shell command run automatically after a task that changed files (e.g.
+   * `npm run typecheck` or `npm test`). Empty = disabled. Requires
+   * allowTerminal. On non-zero exit the agent gets the output back and tries
+   * to fix what it broke before finishing.
+   */
+  verifyCommand: string;
   /** When true, every command spawns an approval prompt before running. */
   requireApprovalForCommands: boolean;
   terminalTimeoutMs: number;
@@ -175,6 +182,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     allowEnvEdits: false,
     protectedGlobs: DEFAULT_PROTECTED_GLOBS,
     allowTerminal: false,
+    verifyCommand: '',
     requireApprovalForCommands: true,
     terminalTimeoutMs: 60_000,
     terminalMaxOutputBytes: 200_000,
@@ -286,6 +294,7 @@ export function normalizeAppSettings(input: unknown): AppSettings {
       allowEnvEdits: bool(i.agent?.allowEnvEdits, D.agent.allowEnvEdits),
       protectedGlobs: strArr(i.agent?.protectedGlobs, D.agent.protectedGlobs),
       allowTerminal: bool(i.agent?.allowTerminal, D.agent.allowTerminal),
+      verifyCommand: str(i.agent?.verifyCommand, D.agent.verifyCommand).slice(0, 1024),
       requireApprovalForCommands: bool(
         i.agent?.requireApprovalForCommands,
         D.agent.requireApprovalForCommands

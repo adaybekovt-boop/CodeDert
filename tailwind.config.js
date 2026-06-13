@@ -1,3 +1,5 @@
+import tailwindcssAnimate from 'tailwindcss-animate';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -29,6 +31,44 @@ export default {
           secondary: '#a1a1a6',
           muted: '#6e6e73',
         },
+        // shadcn/ui token layer — driven by CSS variables in styles/index.css,
+        // mapped onto the graphite palette above. Lets dropped-in shadcn
+        // components (which reference bg-background, text-primary, ring-ring,
+        // border-input, …) work without disturbing the legacy bg-*/text-* set.
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        ring: 'hsl(var(--ring))',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        primary: {
+          DEFAULT: 'hsl(var(--primary))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+        secondary: {
+          DEFAULT: 'hsl(var(--secondary))',
+          foreground: 'hsl(var(--secondary-foreground))',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted))',
+          foreground: 'hsl(var(--muted-foreground))',
+        },
+        popover: {
+          DEFAULT: 'hsl(var(--popover))',
+          foreground: 'hsl(var(--popover-foreground))',
+        },
+        card: {
+          DEFAULT: 'hsl(var(--card))',
+          foreground: 'hsl(var(--card-foreground))',
+        },
+      },
+      borderRadius: {
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 2px)',
+        sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
@@ -52,5 +92,5 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [tailwindcssAnimate],
 };

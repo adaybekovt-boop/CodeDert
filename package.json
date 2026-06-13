@@ -1,6 +1,6 @@
 {
   "name": "codedert",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Local-first AI IDE — Cursor-like with Ollama + optional Claude API",
   "main": "dist-electron/main.js",
   "type": "module",
@@ -24,6 +24,7 @@
     "@radix-ui/react-toast": "^1.2.4",
     "@xyflow/react": "^12.10.2",
     "chokidar": "^4.0.3",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "diff": "^7.0.0",
     "electron-store": "^10.0.1",
@@ -38,6 +39,8 @@
     "react-syntax-highlighter": "^15.6.1",
     "remark-gfm": "^4.0.0",
     "systeminformation": "^5.23.14",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss-animate": "^1.0.7",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
