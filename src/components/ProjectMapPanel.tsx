@@ -237,8 +237,13 @@ function FolderNode({ data }: {
         <div className={`font-medium truncate ${isRoot ? 'text-base text-white' : 'text-sm text-zinc-100'}`}>
           {node.name}
         </div>
-        {node.childCount ? (
-          <div className="text-[10px] text-zinc-500">{node.childCount} элем.</div>
+        {node.childCount || node.hiddenChildren ? (
+          <div className="text-[10px] text-zinc-500">
+            {node.childCount || 0} элем.
+            {node.hiddenChildren ? (
+              <span className="text-amber-500/80"> · +{node.hiddenChildren} скрыто лимитом</span>
+            ) : null}
+          </div>
         ) : null}
       </div>
       {!!node.childCount && (
@@ -374,6 +379,14 @@ export function ProjectMapPanel() {
         {projectMapGraph && (
           <div className="text-xs text-text-secondary">
             {projectMapGraph.rootName} · {visibleCount}/{totalCount} узл. · клик по папке раскрывает её
+            {projectMapGraph.truncated && (
+              <span
+                className="text-amber-500/80"
+                title="Сканер достиг лимита (глубина/количество). Папки с обрезанным содержимым помечены «+N скрыто лимитом»."
+              >
+                {' '}· часть узлов скрыта лимитом
+              </span>
+            )}
           </div>
         )}
         <div className="flex-1" />

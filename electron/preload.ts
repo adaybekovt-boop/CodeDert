@@ -41,9 +41,11 @@ const api = {
           preview?: string;
           language?: string;
           childCount?: number;
+          hiddenChildren?: number;
         }[];
         edges: { from: string; to: string }[];
         rootName: string;
+        truncated?: boolean;
       };
       generatedAt: number;
       root: string;

@@ -10,12 +10,16 @@ export interface ProjectMapNode {
   preview?: string;
   language?: string;
   childCount?: number;
+  /** How many real children the scanner cut by a limit (shown as "+N скрыто"). */
+  hiddenChildren?: number;
 }
 
 export interface ProjectMapGraph {
   nodes: ProjectMapNode[];
   edges: { from: string; to: string }[];
   rootName: string;
+  /** True when any scan limit truncated the graph. */
+  truncated?: boolean;
 }
 
 interface AppState {

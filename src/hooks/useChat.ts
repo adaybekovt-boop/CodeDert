@@ -49,6 +49,37 @@ function fileBlock(file: OpenFile, workspaceRoot: string | null, title: string, 
   return `\n\n[${title}: ${rel}]\n\`\`\`${file.language}\n${content}\n\`\`\``;
 }
 
+/** Which XML field the agent protocol uses for each tool's primary argument. */
+const TOOL_ARG_FIELD: Record<string, string> = {
+  search: 'query',
+  run_command: 'command',
+  read_recipe: 'name',
+};
+
+/**
+ * Rebuild an assistant message for model-facing history.
+ *
+ * In agent mode the raw <tool> XML is hidden from the visible chat content
+ * (tool calls render as structured ToolEvent blocks instead). If history were
+ * sent as-is, every past assistant turn would show the model an example of
+ * "doing" tool work in plain prose — after a few turns the model imitates
+ * that and stops emitting real <tool> blocks. Reconstructing a compact XML
+ * trace keeps the protocol visible as a few-shot anchor.
+ */
+function assistantHistoryContent(m: ChatMessage): string {
+  const events = m.toolEvents || [];
+  if (events.length === 0) return m.content;
+  const trace = events
+    .map((ev) => {
+      const field = TOOL_ARG_FIELD[ev.tool] || 'path';
+      const arg = ev.target ? `\n<${field}>${ev.target}</${field}>` : '';
+      const body = ev.status === 'error' ? `ERROR: ${ev.output || 'failed'}` : ev.output || 'OK';
+      return `<tool name="${ev.tool}">${arg}\n</tool>\n<tool_result tool="${ev.tool}">\n${body}\n</tool_result>`;
+    })
+    .join('\n');
+  return `${trace}\n\n${m.content}`;
+}
+
 async function refreshOpenFileIfAny(path: string) {
   const state = useStore.getState();
   const open = state.openFiles.find((f) => f.path === path);
@@ -164,6 +195,24 @@ export function useChat() {
       if (data.requestId !== activeRequestId.current) return;
       const state = useStore.getState();
       const lastMsg = state.messages[state.messages.length - 1];
+
+      // 'done' must ALWAYS clear streaming state, even if the message list is
+      // in an unexpected shape — a swallowed done leaves the UI spinning forever.
+      if (data.kind === 'done') {
+        const msg =
+          lastMsg && lastMsg.role === 'assistant'
+            ? lastMsg
+            : [...state.messages].reverse().find((m) => m.role === 'assistant');
+        if (msg) {
+          state.finishMessage(msg.id, data.error);
+          if (!data.error) fireAutoCapture(msg.id);
+        }
+        state.setStreaming(false);
+        activeRequestId.current = null;
+        activeMode.current = null;
+        return;
+      }
+
       if (!lastMsg || lastMsg.role !== 'assistant') return;
 
       if (data.kind === 'text' && data.chunk) {
@@ -205,14 +254,6 @@ export function useChat() {
           useStore.getState().refreshProjectMap().catch(() => {});
         }
         return;
-      }
-
-      if (data.kind === 'done') {
-        state.finishMessage(lastMsg.id, data.error);
-        state.setStreaming(false);
-        activeRequestId.current = null;
-        activeMode.current = null;
-        if (!data.error) fireAutoCapture(lastMsg.id);
       }
     });
 
@@ -336,7 +377,10 @@ export function useChat() {
 
     const history = state.messages
       .filter((m) => m.role !== 'system' && !m.error)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) => ({
+        role: m.role,
+        content: m.role === 'assistant' ? assistantHistoryContent(m) : m.content,
+      }));
     history.push({ role: 'user', content: text + contextBlock });
 
     let systemPrompt = opts.systemOverride ?? CODE_SYSTEM_PROMPT;
