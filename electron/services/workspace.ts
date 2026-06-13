@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { appSettings } from './settings.js';
 import { isProtectedPath, safeResolveInWorkspace } from './path-safety.js';
-import { findClosestFragment } from './edit-fuzzy.js';
+import { findClosestFragment, matchLineEndings } from './edit-fuzzy.js';
 
 export interface FileNode {
   id: string;
@@ -211,11 +211,21 @@ export const workspace = {
 
     try {
       const content = await fs.readFile(check.absolute!, 'utf-8');
-      if (oldString === newString) {
-        return { ok: false, error: 'old_string and new_string are identical' };
-      }
       if (oldString.length === 0) {
         return { ok: false, error: 'old_string must not be empty (use create_file)' };
+      }
+
+      // Line-ending tolerance: models routinely emit LF even when the file on
+      // disk is CRLF (or vice-versa). A byte-exact indexOf then fails on an
+      // otherwise-correct fragment — the #1 source of "old_string not found"
+      // dead ends. Normalize both args to the file's own EOL convention so the
+      // match succeeds without forcing the model to retry, and so we never
+      // introduce mixed endings on write.
+      oldString = matchLineEndings(oldString, content);
+      newString = matchLineEndings(newString, content);
+
+      if (oldString === newString) {
+        return { ok: false, error: 'old_string and new_string are identical' };
       }
 
       let idx = 0;

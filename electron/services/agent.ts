@@ -11,13 +11,20 @@ import { mcp } from './mcp.js';
 import {
   type AgentMessage,
   type ToolCall,
+  FIELD_ALIASES,
+  bareBodyArg,
   collapseOldToolResults,
   escapeXml,
   findCompletedToolCall,
   findSafeTextBoundary,
   looksLikeToolIntentWithoutCall,
   readField,
+  readFieldAny,
 } from './agent-protocol.js';
+
+// Tools whose single primary argument is a path — allows the model to put the
+// value directly in a name-as-tag body, e.g. <read_file>config.json</read_file>.
+const PATH_PRIMARY_TOOLS = new Set(['read_file', 'list_dir', 'delete_file']);
 
 /**
  * Agent loop: gives a local Ollama (or any text) model a set of tools to read,
@@ -71,8 +78,30 @@ interface ActiveRequest {
 
 const activeRequests = new Map<string, ActiveRequest>();
 
+/**
+ * Pending `ask` tool calls: the agent loop blocks here until the renderer
+ * sends the human's answer (or the request is aborted). Keyed by askId; each
+ * entry remembers its parent requestId so an abort/stop cancels it cleanly.
+ */
+interface PendingAsk {
+  resolve: (v: { answered: boolean; text?: string }) => void;
+  requestId: string;
+}
+const pendingAsks = new Map<string, PendingAsk>();
+
+function cancelPendingAsks(requestId: string): void {
+  for (const [askId, p] of pendingAsks) {
+    if (p.requestId === requestId) {
+      pendingAsks.delete(askId);
+      p.resolve({ answered: false });
+    }
+  }
+}
+
 function abortRequest(requestId: string): boolean {
   const st = activeRequests.get(requestId);
+  // Even with no live stream entry, a blocked `ask` must be released.
+  cancelPendingAsks(requestId);
   if (!st) return false;
   st.userAborted = true;
   try {
@@ -99,9 +128,12 @@ async function executeTool(
   requestId: string,
   readFiles: Set<string>
 ): Promise<ToolResult> {
-  // Notify UI: tool call started
+  // Notify UI: tool call started. Use alias-aware extraction so the chip still
+  // shows the path/query even when the model used a synonym field name.
   const argsPreview: Record<string, string> = {};
-  for (const f of ['path', 'query', 'command', 'old_string', 'new_string', 'replace_all', 'content', 'offset', 'limit', 'server', 'tool']) {
+  const previewPath = readFieldAny(block, FIELD_ALIASES.path);
+  if (previewPath != null) argsPreview.path = previewPath.slice(0, 80);
+  for (const f of ['query', 'command', 'old_string', 'new_string', 'replace_all', 'content', 'offset', 'limit', 'server', 'tool', 'question']) {
     const v = readField(block, f);
     if (v != null) argsPreview[f] = v.length > 80 ? v.slice(0, 80) + '…' : v;
   }
@@ -113,7 +145,9 @@ async function executeTool(
     status: 'running',
   });
 
-  const pathArg = readField(block, 'path');
+  let pathArg = readFieldAny(block, FIELD_ALIASES.path);
+  // <read_file>config.json</read_file> — value straight in the body.
+  if (pathArg == null && PATH_PRIMARY_TOOLS.has(name)) pathArg = bareBodyArg(block);
   const resolved = pathArg
     ? workspace.resolveAgentPath(pathArg, workspaceRoot)
     : { ok: true as const };
@@ -183,7 +217,7 @@ async function executeTool(
       }
 
       case 'search': {
-        const query = readField(block, 'query') || readField(block, 'pattern');
+        const query = readFieldAny(block, FIELD_ALIASES.query) || bareBodyArg(block);
         if (!query) return failTool('search требует <query>');
         const inPath = readField(block, 'path') || undefined;
         const res = await workspace.search(query, inPath ? { path: inPath } : {});
@@ -231,11 +265,18 @@ async function executeTool(
             `Сначала прочитай файл (read_file ${pathArg}) — правки без чтения запрещены.`
           );
         }
-        const oldStr = readField(block, 'old_string');
-        const newStr = readField(block, 'new_string');
+        const oldStr = readFieldAny(block, FIELD_ALIASES.old_string);
+        const newStr = readFieldAny(block, FIELD_ALIASES.new_string);
         const replaceAllRaw = readField(block, 'replace_all');
         if (oldStr == null || newStr == null) {
-          return failTool('edit_file требует <old_string> и <new_string>');
+          return failTool(
+            'edit_file требует поля <old_string> и <new_string>. Точный формат:\n' +
+              '<tool name="edit_file">\n' +
+              `<path>${escapeXml(pathArg)}</path>\n` +
+              '<old_string>точный фрагмент из файла</old_string>\n' +
+              '<new_string>на что заменить</new_string>\n' +
+              '</tool>'
+          );
         }
         const replaceAll = replaceAllRaw != null && /true|1|yes/i.test(replaceAllRaw.trim());
         const res = await workspace.applyEdit(resolved.absolute!, oldStr, newStr, replaceAll);
@@ -249,7 +290,7 @@ async function executeTool(
 
       case 'create_file': {
         if (!pathArg) return failTool('create_file требует <path>');
-        const content = readField(block, 'content');
+        const content = readFieldAny(block, FIELD_ALIASES.content);
         if (content == null) return failTool('create_file требует <content>');
         // Overwriting an existing file without reading it first is a silent
         // data-loss vector — require read_file or edit_file instead.
@@ -284,7 +325,7 @@ async function executeTool(
       }
 
       case 'run_command': {
-        const cmdText = readField(block, 'command');
+        const cmdText = readFieldAny(block, FIELD_ALIASES.command) || bareBodyArg(block);
         if (!cmdText || !cmdText.trim()) return failTool('run_command requires <command>');
         const cwdField = readField(block, 'cwd');
         const timeoutField = readField(block, 'timeout_ms');
@@ -327,7 +368,7 @@ async function executeTool(
 
       case 'read_recipe': {
         // cdesign skill recipe lookup. Field is <name>foo</name>, not <path>.
-        const recipe = readField(block, 'name') || readField(block, 'recipe');
+        const recipe = readField(block, 'name') || readField(block, 'recipe') || bareBodyArg(block);
         if (!recipe) return failTool('read_recipe requires <name>');
         const res = await cdesign.readRecipe(recipe);
         if (!res.ok) return failTool(res.error || 'recipe not found');
@@ -379,6 +420,38 @@ async function executeTool(
           ok: true,
           summary: `MCP ${server}::${toolName} — OK`,
           modelText: res.text || '(пустой результат)',
+        };
+      }
+
+      case 'ask': {
+        // Ask the human a question and block until they answer. Always
+        // available (no terminal/settings gate — it only shows a prompt).
+        const question = readFieldAny(block, FIELD_ALIASES.question) || bareBodyArg(block);
+        if (!question || !question.trim()) return failTool('ask требует <question>');
+        const askId = `${requestId}::ask-${Date.now().toString(36)}-${Math.random()
+          .toString(36)
+          .slice(2, 7)}`;
+        win.webContents.send('agent:ask-request', {
+          requestId,
+          askId,
+          question: question.trim(),
+        });
+        const answer = await new Promise<{ answered: boolean; text?: string }>((resolve) => {
+          pendingAsks.set(askId, { resolve, requestId });
+        });
+        if (!answer.answered) {
+          return {
+            ok: false,
+            summary: 'нет ответа',
+            modelText:
+              'Пользователь не ответил на вопрос (отменено). Прими решение самостоятельно или заверши задачу.',
+          };
+        }
+        const text = (answer.text || '').trim();
+        return {
+          ok: true,
+          summary: text ? `ответ: ${text.slice(0, 60)}` : 'пустой ответ',
+          modelText: `Ответ пользователя на вопрос «${question.trim().slice(0, 200)}»:\n${text || '(пусто)'}`,
         };
       }
 
@@ -728,7 +801,7 @@ export const agent = {
         // Enforce per-task file touch ceiling.
         const isMutating =
           tc.name === 'edit_file' || tc.name === 'create_file' || tc.name === 'delete_file';
-        const pathArg = readField(tc.raw, 'path') || '';
+        const pathArg = readFieldAny(tc.raw, FIELD_ALIASES.path) || '';
         if (isMutating && pathArg && !touchedFiles.has(pathArg)) {
           if (touchedFiles.size >= MAX_FILES_TOUCHED) {
             send({
@@ -817,6 +890,18 @@ export const agent = {
 
   abort(requestId: string): boolean {
     return abortRequest(requestId);
+  },
+
+  /**
+   * Renderer delivers the human's answer to a pending `ask` tool call.
+   * Returns true if an ask was waiting for this askId.
+   */
+  respondAsk(askId: string, decision: { answered: boolean; text?: string }): boolean {
+    const pending = pendingAsks.get(askId);
+    if (!pending) return false;
+    pendingAsks.delete(askId);
+    pending.resolve({ answered: decision.answered, text: decision.text });
+    return true;
   },
 };
 
@@ -911,6 +996,12 @@ export const TOOL_PROTOCOL_PROMPT = `У тебя есть РУКИ — инст�
 <tool>read_file</tool>
 <arguments>{"path": "/tmp/data.json"}</arguments>
 </tool>
+
+11) ask — задать вопрос человеку и ДОЖДАТЬСЯ ответа. Используй ТОЛЬКО когда реально заблокирован: не хватает решения, которое можешь принять лишь пользователь (выбор варианта, подтверждение рискованного действия, недостающий факт, который нельзя получить из файлов). Не спрашивай о том, что можно узнать через read_file/search. Один конкретный вопрос за раз.
+<tool name="ask">
+<question>Создавать новый файл src/config.ts или дописать в существующий src/settings.ts?</question>
+</tool>
+Система покажет вопрос пользователю и вернёт его ответ в <tool_result>. Если пользователь пропустил — прими решение сам.
 
 ВАЖНО:
 - Слова «сейчас прочитаю файл», «использую create_file» и т.п. БЕЗ XML-блока НИЧЕГО не делают: система исполняет ТОЛЬКО XML-блоки <tool ...>. Решил использовать инструмент — немедленно, в этом же ответе, выведи блок.

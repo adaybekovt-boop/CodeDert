@@ -54,6 +54,7 @@ const TOOL_ARG_FIELD: Record<string, string> = {
   search: 'query',
   run_command: 'command',
   read_recipe: 'name',
+  ask: 'question',
 };
 
 /**
@@ -221,7 +222,7 @@ export function useChat() {
       }
 
       if (data.kind === 'tool_call') {
-        const argsPath = data.args?.path ?? data.args?.command ?? data.args?.query;
+        const argsPath = data.args?.path ?? data.args?.command ?? data.args?.query ?? data.args?.question;
         state.addToolEvent(lastMsg.id, {
           id: genId(),
           tool: data.tool || 'tool',

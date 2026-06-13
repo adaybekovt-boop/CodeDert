@@ -121,6 +121,11 @@ export function registerIpcHandlers(win: BrowserWindow) {
     agent.chat({ ...params, workspaceRoot: getActiveWorkspaceRoot() }, win)
   );
   ipcMain.handle('agent:abort', (_, requestId: string) => agent.abort(requestId));
+  ipcMain.handle(
+    'agent:ask-respond',
+    (_, askId: string, decision: { answered: boolean; text?: string }) =>
+      agent.respondAsk(askId, decision)
+  );
 
   // ── Ollama ────────────────────────────────────────────────
   ipcMain.handle('ollama:health', () => ollama.health());

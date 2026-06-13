@@ -115,6 +115,41 @@
   @apply border-l-2 border-accent-muted pl-3 text-text-secondary italic;
 }
 
+/* "Thinking" indicator: a light sweeps left-to-right across the word while the
+   model streams its first token, with a cycling ellipsis. Compositor-friendly
+   (animates background-position + a discrete content swap). */
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    #6e6e73 0%,
+    #6e6e73 35%,
+    #f4f4f5 50%,
+    #6e6e73 65%,
+    #6e6e73 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: thinkingShimmer 1.6s linear infinite;
+}
+@keyframes thinkingShimmer {
+  0% { background-position: 100% center; }
+  100% { background-position: -100% center; }
+}
+.thinking-dots::after {
+  content: '';
+  animation: thinkingDots 1.4s steps(1, end) infinite;
+}
+@keyframes thinkingDots {
+  0%   { content: ''; }
+  25%  { content: '.'; }
+  50%  { content: '..'; }
+  75%  { content: '...'; }
+  100% { content: ''; }
+}
+
 /* Project Map: subtle entrance animation for nodes (one-time, no per-frame work). */
 @keyframes mapNodeIn {
   from { opacity: 0; transform: scale(0.92); }

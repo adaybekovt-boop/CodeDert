@@ -34,6 +34,50 @@ export function readField(block: string, name: string): string | null {
   return unescapeXml(m[1]);
 }
 
+/**
+ * Read the first of several accepted field names. Weak models rarely match the
+ * exact field name from the prompt — they write <old> for <old_string>, <file>
+ * for <path>, <query> vs <pattern>, etc. Trying a synonym list turns a hard
+ * "missing field" failure into a successful tool call.
+ */
+export function readFieldAny(block: string, names: readonly string[]): string | null {
+  for (const n of names) {
+    const v = readField(block, n);
+    if (v != null) return v;
+  }
+  return null;
+}
+
+/**
+ * For a name-as-tag block like `<read_file>config.json</read_file>`, return the
+ * trimmed inner text — but ONLY when it has no nested `<field>` tags, so a
+ * structured multi-field block is never mistaken for a bare value. Lets
+ * single-argument tools work when the model puts the value straight in the body
+ * instead of a `<path>`/`<query>`/`<command>` field.
+ */
+export function bareBodyArg(block: string): string | null {
+  const m = block.match(/^<([a-z_]+)\s*>([\s\S]*)<\/\1>\s*$/i);
+  if (!m) return null;
+  const inner = m[2];
+  if (/<[a-z_]+\s*>/i.test(inner)) return null; // has child tags → structured
+  const v = unescapeXml(inner).trim();
+  return v || null;
+}
+
+/** Field-name synonyms accepted per logical argument (case-insensitive). */
+export const FIELD_ALIASES = {
+  path: ['path', 'file', 'file_path', 'filepath', 'filename', 'target_file'],
+  old_string: ['old_string', 'oldstring', 'old_str', 'old', 'search', 'find', 'before'],
+  new_string: ['new_string', 'newstring', 'new_str', 'new', 'replacement', 'replace', 'after'],
+  content: ['content', 'text', 'body', 'code', 'data', 'file_text'],
+  query: ['query', 'pattern', 'q', 'text', 'search'],
+  command: ['command', 'cmd', 'shell', 'run'],
+  question: ['question', 'prompt', 'q', 'ask', 'message', 'text'],
+} as const;
+
+export const TOOL_NAMES =
+  'read_file|list_dir|search|edit_file|create_file|delete_file|run_command|read_recipe|mcp_list_tools|mcp_call|ask';
+
 export interface ToolCall {
   raw: string;
   name: string;
@@ -42,32 +86,57 @@ export interface ToolCall {
 }
 
 /**
- * Scan the streamed buffer for the next *complete* tool block.
+ * Scan the streamed buffer for the next *complete* tool block. Two formats are
+ * accepted (earliest complete one wins):
+ *
+ *   A. canonical:  <tool name="read_file"> … </tool>
+ *   B. name-as-tag: <read_file> … </read_file>
+ *
+ * Format B is what a large share of weak local models default to, so accepting
+ * it directly removes a whole class of "model did nothing" turns. Format A is
+ * lenient on quoting (`name=read_file`, `name='read_file'`, spaces around `=`).
  * Returns null if no complete block yet (might still be streaming).
  */
 export function findCompletedToolCall(buffer: string): ToolCall | null {
-  // Lenient on purpose: weak local models routinely drop the quotes
-  // (`<tool name=read_file>`), use single quotes, or add stray spaces around
-  // `=`. Accept all of those — the name itself is still constrained to the
-  // known tool charset, so this can't match `<tool_result ...>`.
-  const openRe = /<tool\s+name\s*=\s*["']?([a-z_]+)["']?\s*>/i;
-  const open = buffer.match(openRe);
-  if (!open) return null;
-  const openIdx = open.index!;
-  const closeTag = '</tool>';
-  const closeIdx = buffer.indexOf(closeTag, openIdx);
-  if (closeIdx === -1) return null;
-  const endIdx = closeIdx + closeTag.length;
-  return {
-    raw: buffer.slice(openIdx, endIdx),
-    name: open[1].toLowerCase(),
-    startInOutput: openIdx,
-    endInOutput: endIdx,
-  };
-}
+  const candidates: ToolCall[] = [];
 
-const TOOL_NAMES =
-  'read_file|list_dir|search|edit_file|create_file|delete_file|run_command|read_recipe|mcp_list_tools|mcp_call';
+  // Format A — <tool name="...">...</tool>
+  const aOpen = buffer.match(/<tool\s+name\s*=\s*["']?([a-z_]+)["']?\s*>/i);
+  if (aOpen) {
+    const openIdx = aOpen.index!;
+    const closeIdx = buffer.indexOf('</tool>', openIdx);
+    if (closeIdx !== -1) {
+      const endIdx = closeIdx + '</tool>'.length;
+      candidates.push({
+        raw: buffer.slice(openIdx, endIdx),
+        name: aOpen[1].toLowerCase(),
+        startInOutput: openIdx,
+        endInOutput: endIdx,
+      });
+    }
+  }
+
+  // Format B — <read_file>...</read_file> (tool name used as the tag itself).
+  const bOpen = buffer.match(new RegExp(`<(${TOOL_NAMES})\\s*>`, 'i'));
+  if (bOpen) {
+    const name = bOpen[1].toLowerCase();
+    const openIdx = bOpen.index!;
+    const closeIdx = buffer.toLowerCase().indexOf(`</${name}>`, openIdx);
+    if (closeIdx !== -1) {
+      const endIdx = closeIdx + name.length + 3; // </ + name + >
+      candidates.push({
+        raw: buffer.slice(openIdx, endIdx),
+        name,
+        startInOutput: openIdx,
+        endInOutput: endIdx,
+      });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.startInOutput - b.startInOutput);
+  return candidates[0];
+}
 
 /** Intent verb followed (within ~80 chars) by a concrete tool name:
  *  "использую create_file", "сейчас вызову read_file", "let me run search". */
@@ -103,12 +172,14 @@ export function looksLikeToolIntentWithoutCall(text: string): boolean {
  * echoed by a confused model must NOT freeze the visible stream forever.
  */
 export function findSafeTextBoundary(buffer: string, from: number): number {
-  const re = /<tool(?=[\s>])/g;
+  // Hide both call formats: `<tool ...>` and the name-as-tag `<read_file>`.
+  const re = new RegExp(`<tool(?=[\\s>])|<(?:${TOOL_NAMES})(?=[\\s>])`, 'gi');
   re.lastIndex = from;
   const m = re.exec(buffer);
   if (m) return m.index;
-  // Otherwise hold back the last ~6 chars in case `<tool` is still arriving.
-  return Math.max(from, buffer.length - 6);
+  // Otherwise hold back the last ~16 chars in case an opening tag is still
+  // arriving (the longest tool name, `mcp_list_tools`, plus `<` and `>`).
+  return Math.max(from, buffer.length - 16);
 }
 
 /**

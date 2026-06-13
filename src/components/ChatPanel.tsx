@@ -554,11 +554,21 @@ function Markdown({ text }: { text: string }) {
   );
 }
 
+/** Animated "Thinking" label shown while the model streams its first token. */
+function ThinkingIndicator() {
+  return (
+    <span className="thinking-shimmer font-mono text-[13px] select-none">
+      Thinking<span className="thinking-dots" />
+    </span>
+  );
+}
+
 /** Interleaves assistant prose with tool-call blocks using event anchors. */
 function AssistantBody({ msg }: { msg: ChatMessage }) {
   const events = msg.toolEvents || [];
   if (events.length === 0) {
-    return <Markdown text={msg.content || (msg.streaming ? '…' : '')} />;
+    if (!msg.content && msg.streaming) return <ThinkingIndicator />;
+    return <Markdown text={msg.content} />;
   }
   const parts: ReactNode[] = [];
   let pos = 0;
@@ -619,7 +629,7 @@ function MessageBubble({
       ) : (
         <div className="markdown-body break-words">
           <AssistantBody msg={msg} />
-          {msg.streaming && (
+          {msg.streaming && !!msg.content && (
             <span className="inline-block w-1.5 h-3 bg-accent ml-0.5 animate-pulse" />
           )}
         </div>

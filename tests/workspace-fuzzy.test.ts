@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findClosestFragment } from '../electron/services/edit-fuzzy';
+import { findClosestFragment, matchLineEndings } from '../electron/services/edit-fuzzy';
 
 describe('findClosestFragment', () => {
   const file = [
@@ -38,5 +38,34 @@ describe('findClosestFragment', () => {
   it('returns null when the trimmed match is ambiguous (not unique)', () => {
     const dup = ['a', 'dup', 'b', 'dup', 'c'].join('\n');
     expect(findClosestFragment(dup, 'dup')).toBeNull();
+  });
+});
+
+describe('matchLineEndings', () => {
+  const crlfFile = 'a\r\nb\r\nc\r\n';
+  const lfFile = 'a\nb\nc\n';
+
+  it('rewrites LF old_string to CRLF so it matches a CRLF file', () => {
+    const old = 'a\nb';
+    const fixed = matchLineEndings(old, crlfFile);
+    expect(fixed).toBe('a\r\nb');
+    expect(crlfFile.includes(fixed)).toBe(true);
+  });
+
+  it('rewrites CRLF old_string to LF so it matches an LF file', () => {
+    const old = 'a\r\nb';
+    expect(matchLineEndings(old, lfFile)).toBe('a\nb');
+  });
+
+  it('is a no-op when endings already match (CRLF)', () => {
+    expect(matchLineEndings('a\r\nb', crlfFile)).toBe('a\r\nb');
+  });
+
+  it('strips stray CR the model added to a single line', () => {
+    expect(matchLineEndings('x\r\n', lfFile)).toBe('x\n');
+  });
+
+  it('treats a file with no newline as LF', () => {
+    expect(matchLineEndings('a\r\nb', 'single line')).toBe('a\nb');
   });
 });

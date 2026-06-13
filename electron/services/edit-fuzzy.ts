@@ -6,6 +6,18 @@
  */
 
 /**
+ * Rewrite `target`'s line endings to match the convention used by `sample`
+ * (the on-disk file). Models routinely emit LF even when the file is CRLF (or
+ * vice-versa), so a byte-exact match of an otherwise-correct fragment fails.
+ * Normalizing the model's old_string/new_string to the file's EOL both fixes
+ * the match and prevents writing mixed endings back into the file.
+ */
+export function matchLineEndings(target: string, sample: string): string {
+  const eol = sample.includes('\r\n') ? '\r\n' : '\n';
+  return target.replace(/\r\n/g, '\n').replace(/\n/g, eol);
+}
+
+/**
  * When an `edit_file` old_string fails to match byte-for-byte, find the region
  * of the file the model most likely *meant* — matching on trimmed line content
  * so indentation, trailing whitespace and CRLF/LF differences don't defeat it.

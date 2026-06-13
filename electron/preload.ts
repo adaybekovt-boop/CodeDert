@@ -65,6 +65,17 @@ const api = {
       provider?: string;
     }) => ipcRenderer.invoke('agent:chat', params),
     abort: (requestId: string) => ipcRenderer.invoke('agent:abort', requestId),
+    /** Deliver the human's answer to a pending `ask` tool call. */
+    respondAsk: (askId: string, decision: { answered: boolean; text?: string }) =>
+      ipcRenderer.invoke('agent:ask-respond', askId, decision),
+    /** Fires when the agent's `ask` tool wants a question answered by the user. */
+    onAskRequest: (
+      cb: (data: { requestId: string; askId: string; question: string }) => void
+    ) => {
+      const handler = (_: any, data: any) => cb(data);
+      ipcRenderer.on('agent:ask-request', handler);
+      return () => ipcRenderer.removeListener('agent:ask-request', handler);
+    },
     onEvent: (
       cb: (data: {
         requestId: string;

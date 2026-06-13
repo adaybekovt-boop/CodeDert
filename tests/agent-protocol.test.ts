@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FIELD_ALIASES,
+  bareBodyArg,
   collapseOldToolResults,
   findCompletedToolCall,
   findSafeTextBoundary,
   looksLikeToolIntentWithoutCall,
   readField,
+  readFieldAny,
   type AgentMessage,
 } from '../electron/services/agent-protocol';
 
@@ -45,6 +48,85 @@ describe('findCompletedToolCall', () => {
     expect(
       findCompletedToolCall('<tool_result tool=read_file>x</tool_result>')
     ).toBeNull();
+  });
+
+  it('accepts the name-as-tag format <read_file>…</read_file>', () => {
+    const tc = findCompletedToolCall('<read_file><path>a.ts</path></read_file>');
+    expect(tc).not.toBeNull();
+    expect(tc!.name).toBe('read_file');
+    expect(readField(tc!.raw, 'path')).toBe('a.ts');
+  });
+
+  it('parses a name-as-tag edit_file with all fields', () => {
+    const buf =
+      '<edit_file><path>x.ts</path><old_string>a</old_string><new_string>b</new_string></edit_file>';
+    const tc = findCompletedToolCall(buf);
+    expect(tc).not.toBeNull();
+    expect(tc!.name).toBe('edit_file');
+    expect(readFieldAny(tc!.raw, FIELD_ALIASES.old_string)).toBe('a');
+    expect(readFieldAny(tc!.raw, FIELD_ALIASES.new_string)).toBe('b');
+  });
+
+  it('accepts a name-as-tag tool with no body (mcp_list_tools)', () => {
+    const tc = findCompletedToolCall('<mcp_list_tools></mcp_list_tools>');
+    expect(tc).not.toBeNull();
+    expect(tc!.name).toBe('mcp_list_tools');
+  });
+
+  it('returns the earliest complete block across both formats', () => {
+    const buf = '<read_file><path>a</path></read_file> then <tool name="search"><query>x</query></tool>';
+    const tc = findCompletedToolCall(buf);
+    expect(tc!.name).toBe('read_file');
+  });
+
+  it('recognizes the ask tool in both formats with a question field', () => {
+    const a = findCompletedToolCall('<tool name="ask"><question>Создать файл?</question></tool>');
+    expect(a!.name).toBe('ask');
+    expect(readFieldAny(a!.raw, FIELD_ALIASES.question)).toBe('Создать файл?');
+
+    const b = findCompletedToolCall('<ask><prompt>Какой вариант?</prompt></ask>');
+    expect(b!.name).toBe('ask');
+    expect(readFieldAny(b!.raw, FIELD_ALIASES.question)).toBe('Какой вариант?');
+  });
+});
+
+describe('readFieldAny (field-name synonyms)', () => {
+  it('reads <old>/<new> as old_string/new_string', () => {
+    const block = '<old>foo</old><new>bar</new>';
+    expect(readFieldAny(block, FIELD_ALIASES.old_string)).toBe('foo');
+    expect(readFieldAny(block, FIELD_ALIASES.new_string)).toBe('bar');
+  });
+
+  it('reads <file> as path', () => {
+    expect(readFieldAny('<file>src/a.ts</file>', FIELD_ALIASES.path)).toBe('src/a.ts');
+  });
+
+  it('reads <text> as create_file content', () => {
+    expect(readFieldAny('<text>hello</text>', FIELD_ALIASES.content)).toBe('hello');
+  });
+
+  it('returns null when no synonym is present', () => {
+    expect(readFieldAny('<nope>x</nope>', FIELD_ALIASES.path)).toBeNull();
+  });
+});
+
+describe('bareBodyArg (value directly in a name-as-tag body)', () => {
+  it('reads the inner value of <read_file>config.json</read_file>', () => {
+    expect(bareBodyArg('<read_file>config.json</read_file>')).toBe('config.json');
+  });
+
+  it('returns null for a structured block with child tags', () => {
+    expect(
+      bareBodyArg('<edit_file><path>x</path><old_string>a</old_string></edit_file>')
+    ).toBeNull();
+  });
+
+  it('returns null for a canonical <tool name=...> block', () => {
+    expect(bareBodyArg('<tool name="read_file"><path>x</path></tool>')).toBeNull();
+  });
+
+  it('trims and unescapes the body', () => {
+    expect(bareBodyArg('<search>  a &amp; b  </search>')).toBe('a & b');
   });
 });
 
@@ -107,12 +189,17 @@ describe('findSafeTextBoundary', () => {
   it('does NOT freeze the stream on an echoed <tool_result', () => {
     const buf = '<tool_result tool="read_file">данные</tool_result> и дальше текст идёт';
     // Boundary must keep advancing (only the small trailing hold-back remains).
-    expect(findSafeTextBoundary(buf, 0)).toBe(buf.length - 6);
+    expect(findSafeTextBoundary(buf, 0)).toBe(buf.length - 16);
   });
 
   it('holds back the unsafe tail while <tool may still be arriving', () => {
     const buf = 'обычный текст <to';
-    expect(findSafeTextBoundary(buf, 0)).toBe(buf.length - 6);
+    expect(findSafeTextBoundary(buf, 0)).toBe(buf.length - 16);
+  });
+
+  it('hides text from a name-as-tag <edit_file> open', () => {
+    const buf = 'Сейчас правлю.\n<edit_file><path>a.ts</path>';
+    expect(findSafeTextBoundary(buf, 0)).toBe(buf.indexOf('<edit_file'));
   });
 });
 

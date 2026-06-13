@@ -1,6 +1,6 @@
 {
   "name": "codedert",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Local-first AI IDE — Cursor-like with Ollama + optional Claude API",
   "main": "dist-electron/main.js",
   "type": "module",

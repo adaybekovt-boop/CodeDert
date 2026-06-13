@@ -8,6 +8,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { OnboardingDialog } from './components/OnboardingDialog';
 import { ModelSelectorBar } from './components/ModelSelectorBar';
 import { TerminalApprovalDialog } from './components/TerminalApprovalDialog';
+import { AskDialog } from './components/AskDialog';
 import { UpdateBanner } from './components/UpdateBanner';
 import { BrainPanel } from './components/BrainPanel';
 import { CwmPanel } from './components/CwmPanel';
@@ -128,21 +129,21 @@ export function App() {
           null
         )) as string | null;
         if (lastWorkspace && !cancelled) {
+          // Main process needs the root before any path-guarded call (listFiles
+          // resolves inside it).
           await window.api.workspace.setRoot(lastWorkspace);
-          window.api.brain.setProject(lastWorkspace).catch(() => {});
-          // Generate project map for agent orientation (non-blocking).
-          useStore.setState({ projectMapLoading: true });
-          window.api.workspace.projectMap(lastWorkspace).then((map) => {
-            if (!cancelled) {
-              useStore.setState({
-                projectMap: map?.text || null,
-                projectMapGraph: map?.graph || null,
-                projectMapLoading: false,
-              });
-            }
-          }).catch(() => {
-            if (!cancelled) useStore.setState({ projectMapLoading: false });
-          });
+          // Actually load the file tree into the store — without this the
+          // workspace is "open" in main but the UI tree stays empty after a
+          // restart (the project looks unloaded). setWorkspace also re-pins the
+          // Brain to this project and kicks off the project map.
+          const tree = await withTimeout(
+            window.api.workspace.listFiles(lastWorkspace),
+            8000,
+            null
+          );
+          if (tree && !cancelled) {
+            useStore.getState().setWorkspace(lastWorkspace, tree);
+          }
         }
 
         const onboardingDone = await withTimeout(window.api.settings.get('onboardingDone'), 1500, false);
@@ -203,6 +204,7 @@ export function App() {
         </div>
         {needsOnboarding && <OnboardingDialog />}
         <TerminalApprovalDialog />
+        <AskDialog />
       </div>
     );
   }
@@ -220,6 +222,7 @@ export function App() {
         </div>
         {needsOnboarding && <OnboardingDialog />}
         <TerminalApprovalDialog />
+        <AskDialog />
       </div>
     );
   }
@@ -255,6 +258,7 @@ export function App() {
 
       {/* Terminal approval prompts (rendered above everything) */}
       <TerminalApprovalDialog />
+      <AskDialog />
     </div>
   );
 }
