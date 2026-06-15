@@ -65,7 +65,15 @@ export function registerIpcHandlers(win: BrowserWindow) {
     if (typeof root !== 'string') return false;
     const allowed = store.get('lastWorkspaceRootMain');
     if (typeof allowed === 'string' && allowed) {
-      if (path.resolve(allowed) !== path.resolve(root)) return false;
+      // Windows paths are case-insensitive and path.resolve does NOT normalize
+      // drive-letter case (C:\ vs c:\). A byte-exact compare would wrongly
+      // reject a valid restore on boot, leaving activeWorkspaceRoot null so
+      // every read/write silently fails ("can't open my code"). Compare
+      // case-insensitively on win32 only.
+      const a = path.resolve(allowed);
+      const b = path.resolve(root);
+      const same = process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+      if (!same) return false;
     } else {
       // One-time migration for installs that predate main-side tracking.
       store.set('lastWorkspaceRootMain', root);

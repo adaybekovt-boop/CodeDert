@@ -5,7 +5,7 @@ import type { FileNode } from '../types';
 import { cn } from '../lib/utils';
 
 export function FileTreePanel() {
-  const { workspaceRoot, fileTree, openFile, setWorkspace, refreshFileTree } = useStore();
+  const { workspaceRoot, fileTree, openFile, setWorkspace, refreshFileTree, fileError, clearFileError } = useStore();
 
   async function handleOpenFolder() {
     const result = await window.api.workspace.openFolder();
@@ -38,6 +38,17 @@ export function FileTreePanel() {
           </button>
         </div>
       </div>
+
+      {/* File open/save error — surfaced so a failed click is never silent */}
+      {fileError && (
+        <button
+          onClick={clearFileError}
+          title="Скрыть"
+          className="mx-2 mt-2 px-2 py-1.5 text-left text-xs rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 break-words"
+        >
+          {fileError}
+        </button>
+      )}
 
       {/* Tree */}
       <div className="flex-1 overflow-auto px-1 py-1">

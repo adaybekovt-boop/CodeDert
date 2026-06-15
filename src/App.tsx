@@ -130,8 +130,15 @@ export function App() {
         )) as string | null;
         if (lastWorkspace && !cancelled) {
           // Main process needs the root before any path-guarded call (listFiles
-          // resolves inside it).
-          await window.api.workspace.setRoot(lastWorkspace);
+          // resolves inside it). If this is rejected, every read/write would
+          // fail silently — surface it instead of leaving a dead file tree.
+          const rootOk = await window.api.workspace.setRoot(lastWorkspace);
+          if (!rootOk && !cancelled) {
+            useStore.setState({
+              fileError:
+                'Не удалось восстановить рабочую папку. Откройте её заново через кнопку «Открыть папку».',
+            });
+          }
           // Actually load the file tree into the store — without this the
           // workspace is "open" in main but the UI tree stays empty after a
           // restart (the project looks unloaded). setWorkspace also re-pins the

@@ -31,6 +31,8 @@ interface AppState {
   projectMapLoading: boolean;
   openFiles: OpenFile[];
   activeFilePath: string | null;
+  /** Last file open/save error, surfaced in the UI. null = no error. */
+  fileError: string | null;
 
   // Model selection
   selectedModel: ModelChoice | null;
@@ -57,6 +59,7 @@ interface AppState {
   updateFileContent: (path: string, content: string) => void;
   saveFile: (path: string) => Promise<void>;
   setActiveFile: (path: string | null) => void;
+  clearFileError: () => void;
 
   setModel: (model: ModelChoice) => void;
   setAvailableModels: (models: ModelChoice[]) => void;
@@ -100,6 +103,7 @@ export const useStore = create<AppState>((set, get) => ({
   projectMapLoading: false,
   openFiles: [],
   activeFilePath: null,
+  fileError: null,
 
   selectedModel: null,
   availableModels: [],
@@ -166,12 +170,21 @@ export const useStore = create<AppState>((set, get) => ({
   openFile: async (path) => {
     const { openFiles } = get();
     if (openFiles.find((f) => f.path === path)) {
-      set({ activeFilePath: path });
+      set({ activeFilePath: path, fileError: null });
       return;
     }
-    const res = await window.api.workspace.readFile(path);
+    let res: { ok: boolean; content?: string; error?: string };
+    try {
+      res = await window.api.workspace.readFile(path);
+    } catch (err: any) {
+      res = { ok: false, error: err?.message || String(err) };
+    }
     if (!res.ok) {
+      // Surface the failure instead of dying silently — a click that does
+      // nothing is the #1 "I can't open my code" complaint.
+      const name = path.split(/[\\/]/).pop() || path;
       console.error('readFile failed:', res.error);
+      set({ fileError: `Не удалось открыть ${name}: ${res.error || 'неизвестная ошибка'}` });
       return;
     }
     const name = path.split(/[\\/]/).pop() || path;
@@ -182,7 +195,7 @@ export const useStore = create<AppState>((set, get) => ({
       dirty: false,
       language: languageFromPath(path),
     };
-    set({ openFiles: [...openFiles, newFile], activeFilePath: path });
+    set({ openFiles: [...openFiles, newFile], activeFilePath: path, fileError: null });
   },
 
   closeFile: (path) => {
@@ -206,17 +219,28 @@ export const useStore = create<AppState>((set, get) => ({
   saveFile: async (path) => {
     const file = get().openFiles.find((f) => f.path === path);
     if (!file) return;
-    const res = await window.api.workspace.writeFile(path, file.content);
+    let res: { ok: boolean; error?: string };
+    try {
+      res = await window.api.workspace.writeFile(path, file.content);
+    } catch (err: any) {
+      res = { ok: false, error: err?.message || String(err) };
+    }
     if (res.ok) {
       set((s) => ({
         openFiles: s.openFiles.map((f) =>
           f.path === path ? { ...f, dirty: false } : f
         ),
+        fileError: null,
       }));
+    } else {
+      const name = path.split(/[\\/]/).pop() || path;
+      console.error('writeFile failed:', res.error);
+      set({ fileError: `Не удалось сохранить ${name}: ${res.error || 'неизвестная ошибка'}` });
     }
   },
 
   setActiveFile: (path) => set({ activeFilePath: path }),
+  clearFileError: () => set({ fileError: null }),
 
   setModel: (model) => set({ selectedModel: model }),
   setAvailableModels: (models) => set({ availableModels: models }),
